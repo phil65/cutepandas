@@ -1,0 +1,4 @@
+pandaswidgets module
+===========
+
+::: cutepandas.pandaswidgets

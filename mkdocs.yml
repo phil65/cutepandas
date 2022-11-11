@@ -1,0 +1,39 @@
+site_name: CutePandas
+site_url: https://phil65.github.io/CutePandas/
+nav:
+    - Home: index.md
+    # - API: mkapi/api/cutepandas
+    - API:
+        - core: api/pandaswidgets.md
+        - gui: api/pandasmodels.md
+    - Changelog: changelog.md
+
+theme:
+    name: material
+    custom_dir: docs/theme_customizations/
+plugins:
+    - search
+    - mkdocstrings:
+        default_handler: python
+        handlers:
+          python:
+            rendering:
+              show_source: true
+              show_signature_annotations: true
+              # show_if_no_docstring: true
+            selection:
+              inherited_members: false
+    # - mkapi
+markdown_extensions:
+    # - smarty
+    - codehilite
+    - admonition
+    - pymdownx.superfences
+    # - pymdownx.betterem
+    # - markdown.extensions.footnotes
+    # - markdown.extensions.attr_list
+    # - markdown.extensions.def_list
+    # - markdown.extensions.tables
+    # - markdown.extensions.abbr
+    # - markdown.extensions.md_in_html
+use_directory_urls: false

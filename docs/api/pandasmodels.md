@@ -1,0 +1,4 @@
+pandasmodels module
+==========
+
+::: cutepandas.pandasmodels
