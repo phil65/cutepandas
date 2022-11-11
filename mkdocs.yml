@@ -3,9 +3,9 @@ site_url: https://phil65.github.io/CutePandas/
 nav:
     - Home: index.md
     # - API: mkapi/api/cutepandas
-    - API:
-        - core: api/pandaswidgets.md
-        - gui: api/pandasmodels.md
+    # - API:
+    #     - core: api/pandaswidgets.md
+        # - gui: api/pandasmodels.md
     - Changelog: changelog.md
 
 theme:
