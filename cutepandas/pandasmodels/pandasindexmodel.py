@@ -1,17 +1,14 @@
-"""
-@author: Philipp Temminghoff
-"""
-
 from __future__ import annotations
 
 import logging
 
 import numpy as np
 import pandas as pd
-
 from prettyqt import constants, gui
+
 from cutepandas import pandasmodels
 from cutepandas.util import icons
+
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +18,6 @@ def _(label: str) -> str:
 
 
 class PandasIndexModel(pandasmodels.BaseDatasetModel):
-    """
-    Class to populate a table view with a pandas dataframe
-    """
-
     def __init__(self, ds: pd.DataFrame, parent=None, read_only: bool = False):
         super().__init__(parent=parent, ds=ds)
         self.ds = ds
@@ -35,26 +28,15 @@ class PandasIndexModel(pandasmodels.BaseDatasetModel):
         self.DEFAULT_FORMAT = "%.5g"
 
     def rowCount(self, parent=None):
-        """
-        override for AbstractitemModels
-        """
+        """Overrides AbstractitemModel method."""
         return min(len(self.ds.index), self.MAX_ROWS)
 
     def columnCount(self, parent=None):
-        """
-        override for AbstractitemModels
-        """
+        """Overrides AbstractitemModel method."""
         return len(self.ds.index.names)
 
     def data(self, index, role=constants.DISPLAY_ROLE):
-        """
-        override for AbstractitemModels
-        EditRole: value as str
-        DisplayRole: number-formatted value as str (+ "Preview" for last line")
-        DTYPE_ROLE: dtype of feature
-        NAME_ROLE: raw value
-        COLUMN_ROLE: Name of feature
-        """
+        """Overrides AbstractitemModel method."""
         if not index.isValid():
             return None
         if role == constants.EDIT_ROLE:
@@ -91,15 +73,11 @@ class PandasIndexModel(pandasmodels.BaseDatasetModel):
         return None
 
     def flags(self, index):
-        """
-        override for AbstractitemModels
-        """
+        """Overrides AbstractitemModel method."""
         return super().flags(index) | constants.NO_CHILDREN
 
     def headerData(self, idx: int, orientation, role):
-        """
-        override for AbstractitemModels
-        """
+        """Overrides AbstractitemModel method."""
         if orientation == constants.HORIZONTAL:
             if role == constants.DISPLAY_ROLE:
                 header = self.ds.index.names[idx]
@@ -109,10 +87,7 @@ class PandasIndexModel(pandasmodels.BaseDatasetModel):
         return None
 
     def sort(self, ncol: int, order):
-        """
-        override for AbstractitemModels
-        Sort table by given index col.
-        """
+        """Overrides AbstractitemModel method."""
         if not self.do_sort:
             return None
         logger.debug("sort() called for PandasIndexModel")
@@ -137,6 +112,7 @@ class PandasIndexModel(pandasmodels.BaseDatasetModel):
 
 if __name__ == "__main__":
     from prettyqt import widgets
+
     app = widgets.app()
     df = pd.DataFrame({"a": [1, 2, 3], "b": [1, 2, 3]})
     model = PandasIndexModel(df)

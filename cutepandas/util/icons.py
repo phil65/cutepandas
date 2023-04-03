@@ -1,9 +1,4 @@
-"""
-@author: Philipp Temminghoff
-
-for full list, see:
-- https://cdn.materialdesignicons.com/5.4.55/
-"""
+"""for full list, see:- https://cdn.materialdesignicons.com/5.4.55/ ."""
 
 import pandas as pd
 from prettyqt import iconprovider

@@ -5,8 +5,11 @@ from cutepandas import pandasmodels
 
 def test_pandasmodel(qtmodeltester, df):
     model = pandasmodels.PandasModel(df)
+    assert model
     # qtmodeltester.check(model, force_py=True)
+
 
 def test_pandasindexmodel(qtmodeltester, df):
     model = pandasmodels.PandasIndexModel(df)
+    assert model
     # qtmodeltester.check(model, force_py=True)

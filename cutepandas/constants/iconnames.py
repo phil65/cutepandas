@@ -1,9 +1,4 @@
-"""
-@author: Philipp Temminghoff
-
-for full list, see:
-- https://cdn.materialdesignicons.com/5.4.55/
-"""
+"""for full list, see: https://cdn.materialdesignicons.com/5.4.55/ ."""
 
 BOOKMARK = "mdi.bookmark-outline"
 BOOL = "mdi.toggle-switch-outline"

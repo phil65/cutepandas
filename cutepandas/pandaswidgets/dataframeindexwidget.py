@@ -1,9 +1,6 @@
-"""
-@author: Philipp Temminghoff
-"""
-
 from prettyqt import core, widgets
 from processanalyzer.gui import basetableview
+
 from cutepandas.pandasmodels import pandasindexmodel
 
 
@@ -12,10 +9,6 @@ def _(label: str) -> str:
 
 
 class DataFrameIndexWidget(basetableview.BaseTableView):
-    """
-    Customized TableView class
-    """
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -30,9 +23,7 @@ class DataFrameIndexWidget(basetableview.BaseTableView):
         self.h_header.set_custom_menu(self.h_header_menu)
 
     def contextMenuEvent(self, event):
-        """
-        context menu override
-        """
+        """Overrides abstract method."""
         if self.model() is None or self.model().is_read_only:
             event.accept()
             return None
@@ -42,9 +33,7 @@ class DataFrameIndexWidget(basetableview.BaseTableView):
         return dict(model=self.model(), indexes=self.selectedIndexes())
 
     def h_header_menu(self, position):
-        """
-        context menu for the horizontal header
-        """
+        """Shows context menu for the horizontal header."""
         if self.model().is_read_only:
             return True
         col = self.h_header.logicalIndexAt(position.x())

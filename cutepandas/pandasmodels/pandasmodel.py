@@ -1,23 +1,18 @@
-"""
-@author: Philipp Temminghoff
-"""
-
 import logging
 
 import numpy as np
 import pandas as pd
-
 from prettyqt import constants, gui, widgets
+
 from cutepandas import pandasmodels
 from cutepandas.util import helpers, icons
+
 
 logger = logging.getLogger(__name__)
 
 
 class PandasModel(pandasmodels.BaseDatasetModel):
-    """
-    Class to populate a table view with a pandas dataframe
-    """
+    """Class to populate a table view with a pandas dataframe."""
 
     def __init__(self, ds=None, parent=None, read_only=False, color_values=False):
         super().__init__(parent=parent, ds=ds)
@@ -34,26 +29,15 @@ class PandasModel(pandasmodels.BaseDatasetModel):
                 pass
 
     def rowCount(self, parent=None):
-        """
-        override for AbstractitemModels
-        """
+        """Overrides AbstractitemModel method."""
         return min(len(self.ds.index), self.MAX_ROWS)
 
     def columnCount(self, parent=None):
-        """
-        override for AbstractitemModels
-        """
+        """Overrides AbstractitemModel method."""
         return len(self.ds.columns)
 
     def data(self, index, role=constants.DISPLAY_ROLE):
-        """
-        override for AbstractitemModels
-        EditRole: value as str
-        DisplayRole: number-formatted value as str (+ "Preview" for last line")
-        DTYPE_ROLE: dtype of feature
-        NAME_ROLE: raw value
-        COLUMN_ROLE: Name of feature
-        """
+        """Overrides AbstractitemModel method."""
         if not index.isValid():
             return None
         if role == constants.EDIT_ROLE:
@@ -92,9 +76,7 @@ class PandasModel(pandasmodels.BaseDatasetModel):
         return None
 
     def setData(self, index, value, role=constants.EDIT_ROLE):
-        """
-        override for AbstractitemModels
-        """
+        """Overrides AbstractitemModel method."""
         if not index.isValid():
             return False
         if role == constants.EDIT_ROLE:
@@ -141,16 +123,12 @@ class PandasModel(pandasmodels.BaseDatasetModel):
     #     return True
 
     def flags(self, index):
-        """
-        override for AbstractitemModels
-        """
+        """Overrides AbstractitemModel method."""
         cur_flags = super().flags(index) | constants.NO_CHILDREN
         return cur_flags if self.is_read_only else cur_flags | constants.IS_EDITABLE
 
     def headerData(self, idx: int, orientation, role):
-        """
-        override for AbstractitemModels
-        """
+        """Overrides AbstractitemModel method."""
         if orientation == constants.HORIZONTAL:
             if role == constants.ALIGNMENT_ROLE:
                 return constants.ALIGN_CENTER | constants.ALIGN_BOTTOM
@@ -161,10 +139,7 @@ class PandasModel(pandasmodels.BaseDatasetModel):
         return None
 
     def sort(self, ncol: int, order):
-        """
-        override for AbstractitemModels
-        Sort table by given column number.
-        """
+        """Overrides AbstractitemModel method."""
         if not self.do_sort:
             return None
         with self.change_layout():
@@ -180,7 +155,6 @@ class PandasModel(pandasmodels.BaseDatasetModel):
 
 
 if __name__ == "__main__":
-
     app = widgets.app()
     view = widgets.TreeView()
     data = list(range(2000000))

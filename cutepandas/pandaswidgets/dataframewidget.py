@@ -1,12 +1,7 @@
-"""
-@author: Philipp Temminghoff
-"""
-
 import logging
 
 # import pandas as pd
 from prettyqt import core, widgets
-
 from processanalyzer import models
 from processanalyzer.core import signals
 
@@ -14,14 +9,11 @@ from processanalyzer.core import signals
 from processanalyzer.gui import basetableview, toolbars
 from processanalyzer.util import debug
 
+
 logger = logging.getLogger(__name__)
 
 
 class DataFrameWidget(basetableview.BaseTableView):
-    """
-    Customized TableView class
-    """
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.setSortingEnabled(True)
@@ -30,9 +22,7 @@ class DataFrameWidget(basetableview.BaseTableView):
         # self.h_header.set_custom_menu(self.h_header_menu)
 
     def contextMenuEvent(self, event):
-        """
-        context menu override
-        """
+        """Overrides abstract method."""
         if self.model() is None or self.model().is_read_only:
             event.accept()
             return None

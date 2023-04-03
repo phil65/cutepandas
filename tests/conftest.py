@@ -1,10 +1,9 @@
 """Tests for `datacook` package."""
 from __future__ import annotations
 
-import pytest
-
 import pandas as pd
 from prettyqt import widgets
+import pytest
 
 
 @pytest.fixture(scope="session")

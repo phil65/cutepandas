@@ -1,7 +1,3 @@
-"""
-@author: Philipp Temminghoff
-"""
-
 import logging
 from typing import Optional
 
@@ -9,18 +5,15 @@ import pandas as pd
 from prettyqt import constants, core, custom_models
 from prettyqt.qt import QtCore
 
+
 logger = logging.getLogger(__name__)
 
 
-class BaseDatasetModel(custom_models.BaseModelMixin, core.AbstractTableModel):
-
+class BaseDatasetModel(custom_models.ModelMixin, core.AbstractTableModel):
     dataset_updated = core.Signal(pd.DataFrame)
     MIME_TYPE = Optional[str]
 
     def __init__(self, ds: pd.DataFrame = None, parent: QtCore.QObject = None):
-        """
-        initalize our model
-        """
         super().__init__(parent=parent)
         self.ds = ds
         self.do_sort = True
@@ -32,8 +25,8 @@ class BaseDatasetModel(custom_models.BaseModelMixin, core.AbstractTableModel):
         return [self.MIME_TYPE]
 
     def mimeData(self, indexes) -> core.MimeData:
-        """
-        AbstractItemModel override, defines the data used for drag and drop
+        """Overrides AbstractItemModel method.
+
         atm this just returns the positions (not sure if this is perfect)
         """
         mime_data = core.MimeData()
