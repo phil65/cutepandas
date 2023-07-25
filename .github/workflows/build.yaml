@@ -66,24 +66,16 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: '3.10'
-    - name: Build and publish
-      uses: d1618033/gh-action-python-publish-using-poetry@master
-      with:
-        pypi_username: __token__
-        pypi_password: ${{ secrets.PYPI_SECRET }}
-    # - name: Deploy docs
-    #   # if: github.event_name == 'push'
-    #   uses: mhausenblas/mkdocs-deploy-gh-pages@master
-    #   # Or use mhausenblas/mkdocs-deploy-gh-pages@nomaterial to build without the mkdocs-material theme
-    #   env:
-    #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    #     # CUSTOM_DOMAIN: optionaldomain.com
     - name: Install packages
       # if: runner.os == 'Linux'
       run: |
         pip install poetry
         poetry install -E pyside6
         poetry run mkdocs build
+    - name: Build and publish
+      run: |
+        poetry config pypi-token.pypi ${{ secrets.PYPI_SECRET }}
+        poetry publish --build
     - name: Deploy docs
       uses: peaceiris/actions-gh-pages@v3
       with:
