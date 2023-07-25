@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "CutePandas"
-version = "0.3.1"
+version = "0.3.2"
 description = "Qt Widgets and Objects for Pandas datastructures"
 readme = 'docs/index.md'
 repository = "https://github.com/phil65/cutepandas"
@@ -206,7 +206,7 @@ exclude = '''
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.3.1"
+version = "0.3.2"
 tag_format = "v$version"
 update_changelog_on_bump = true
 changelog_start_rev = "v0.1.0"
