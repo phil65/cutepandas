@@ -1,16 +1,24 @@
-"""Core module.
-
-Contains pandas-based model classes
-"""
-
-from __future__ import annotations
-
-from .basedatasetmodel import BaseDatasetModel
-from .pandasmodel import PandasModel
-from .pandasindexmodel import PandasIndexModel
+from .pandascategorylistmodel import PandasCategoryListModel
+from .pandascolumnlistmodel import PandasColumnListModel, PandasIndexListModel
+from .pandasdataframemodel import (
+    HorizontalHeaderModel,
+    PandasDataFrameModel,
+    VerticalHeaderModel,
+)
+from .pandasindexfilterproxymodel import (
+    PandasEvalFilterProxyModel,
+    PandasMultiStringColumnFilterProxyModel,
+    PandasStringColumnFilterProxyModel,
+)
 
 __all__ = [
-    "BaseDatasetModel",
-    "PandasModel",
-    "PandasIndexModel",
+    "PandasCategoryListModel",
+    "PandasColumnListModel",
+    "PandasIndexListModel",
+    "PandasDataFrameModel",
+    "VerticalHeaderModel",
+    "HorizontalHeaderModel",
+    "PandasEvalFilterProxyModel",
+    "PandasStringColumnFilterProxyModel",
+    "PandasMultiStringColumnFilterProxyModel",
 ]

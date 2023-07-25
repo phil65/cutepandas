@@ -1,11 +1,16 @@
 """pandaswidgets module.
 
-Contains pandas-based widget classes
+contains Pandas-related widgets
 """
-from __future__ import annotations
 
-from .dataframeindexwidget import DataFrameIndexWidget
+from .dataframelistwidget import DataFrameListWidget
+from .dataframemanagerwidget import DataFrameManagerWidget
+from .dataframeviewer import DataFrameViewer
+from .dataframewidget import DataFrameWidget
 
 __all__ = [
-    "DataFrameIndexWidget",
+    "DataFrameViewer",
+    "DataFrameWidget",
+    "DataFrameListWidget",
+    "DataFrameManagerWidget",
 ]
