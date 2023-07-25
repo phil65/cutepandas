@@ -3,13 +3,13 @@
 from cutepandas import pandasmodels
 
 
-def test_pandasmodel(qtmodeltester, df):
-    model = pandasmodels.PandasModel(df)
-    assert model
-    # qtmodeltester.check(model, force_py=True)
+# def test_categorylistmodel(qtmodeltester, df):
+#     model = pandasmodels.PandasCategoryListModel(df)
+#     assert model
+# qtmodeltester.check(model, force_py=True)
 
 
-def test_pandasindexmodel(qtmodeltester, df):
-    model = pandasmodels.PandasIndexModel(df)
+def test_pandascolumnlistmodel(qtmodeltester, df):
+    model = pandasmodels.PandasColumnListModel(df)
     assert model
     # qtmodeltester.check(model, force_py=True)
