@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+
 from prettyqt import constants, widgets
-from prettyqt.qtpandas import pandaswidgets
+
+from cutepandas import pandaswidgets
 
 
 class DataFrameManagerWidget(widgets.Splitter):

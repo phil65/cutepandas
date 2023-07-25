@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import logging
+
 from typing import Literal
 
 import numpy as np
 import pandas as pd
+
 from prettyqt import constants, core
+
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +31,9 @@ class BasePandasIndexFilterProxyModel(core.IdentityProxyModel):
     """
 
     def __init__(self, **kwargs):
-        self._filter_index = None
-        self._source_to_proxy = None
-        self._proxy_to_source = None
+        self._filter_index = np.ndarray(0)
+        self._source_to_proxy = np.ndarray(0)
+        self._proxy_to_source = np.ndarray(0)
         self._row_count = 0
         super().__init__(**kwargs)
 
@@ -103,7 +106,7 @@ class PandasStringColumnFilterProxyModel(BasePandasIndexFilterProxyModel):
 
     def __init__(self, **kwargs):
         self._filter_column = 0
-        self._filter_mode = "startswith"
+        self._filter_mode: FilterModeStr = "startswith"
         self._case_sensitive = True
         self._flags = 0
         self._search_term = ""
@@ -116,7 +119,7 @@ class PandasStringColumnFilterProxyModel(BasePandasIndexFilterProxyModel):
             self._reset_filter_index(init_value=True)
             self._update_mapping()
             return
-        df = self.get_source_model(skip_proxies=True).df
+        df = self.get_source_model(skip_proxies=True).df  # type: ignore
         match self.filter_mode:
             case "startswith":
                 self._filter_index = df.iloc[:, self._filter_column].str.startswith(
@@ -257,10 +260,10 @@ class PandasMultiStringColumnFilterProxyModel(BasePandasIndexFilterProxyModel):
 
     def set_filters(self, filters: dict[str, str]):
         self._filters = filters
-        df = self.get_source_model(skip_proxies=True).df
+        df = self.get_source_model(skip_proxies=True).df  # type: ignore
         # workaround-ish way to implement "startswith" as an expression
-        filters = [f"('{v}' <= `{k}` <= '{v}~')" for k, v in self._filters.items()]
-        expr = " & ".join(filters)
+        filter_list = [f"('{v}' <= `{k}` <= '{v}~')" for k, v in self._filters.items()]
+        expr = " & ".join(filter_list)
         try:
             self._filter_index = df.eval(expr)
             self._filter_index = self._filter_index.to_numpy()
@@ -283,7 +286,8 @@ class PandasMultiStringColumnFilterProxyModel(BasePandasIndexFilterProxyModel):
 
 if __name__ == "__main__":
     from prettyqt import debugging, widgets
-    from prettyqt.qtpandas import pandasmodels
+
+    from cutepandas import pandasmodels
 
     app = widgets.app()
     a = pd.Series(["a", "bc", "c", "d", "aa"] * 100000, dtype=pd.StringDtype())

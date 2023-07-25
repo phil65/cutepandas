@@ -19,7 +19,7 @@ def infer_type(text: str):
 
 
 def format_name(name) -> str:
-    if isinstance(name, (tuple, list)):
+    if isinstance(name, tuple | list):
         return " | ".join(str(i) for i in name)
     return str(name)
 

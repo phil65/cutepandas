@@ -34,9 +34,6 @@ help:
 clean: ## remove all build, test, coverage and Python artifacts
 	git clean -dfX
 
-test_pyqt5: ## run tests with PyQt5
-	export QT_API=pyqt5; poetry run pytest # --mypy
-
 test_pyside6: ## run tests with pyside
 	export QT_API=pyside6; poetry run pytest # --mypy
 
@@ -52,11 +49,7 @@ docs: ## builds the documentation
 	poetry run mkdocs build
 
 serve: ## run html server watching file changes in realtime
-	$(BROWSER) site/index.html
 	poetry run mkdocs serve
-
-# install: clean ## install the package to the active Python's site-packages
-# 	python setup.py install
 
 changelog: ## create changelog
 	python -c "$$BUMP_SCRIPT"

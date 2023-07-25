@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+
 from prettyqt import constants, core, itemmodels, widgets
-from prettyqt.qtpandas import pandasmodels
+
+from cutepandas import pandasmodels
 
 
 class RowsColumn(itemmodels.ColumnItem):

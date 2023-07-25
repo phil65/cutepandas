@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import enum
 import logging
+
 from typing import Any
 
 import polars as pl
+
 from prettyqt import constants, core
+
 
 logger = logging.getLogger(__name__)
 

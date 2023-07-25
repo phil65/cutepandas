@@ -1,13 +1,12 @@
 from functools import wraps
-from types import FunctionType
 
 import pandas as pd
+
 from prettyqt import core
-from prettyqt.qt import QtCore
 
 
 class Signals(core.Object):
-    changed = core.Signal(bool)
+    changed = core.Signal(object)
 
 
 TO_DECORATE = [
@@ -130,11 +129,11 @@ def wrapper(method):
     @wraps(method)
     def wrapped(*args, **kwargs):
         old_shape = args[0].shape
-        print(old_shape)
+        # print(old_shape)
         result = method(*args, **kwargs)
-        print(result.shape)
+        # print(result.shape)
         if str(result.shape) != str(old_shape):
-            result.signals.changed.emit(True)
+            result.signals.changed.emit((old_shape, result.shape))
         return result
 
     return wrapped
@@ -152,12 +151,7 @@ class MetaClass(type):
 
 class QtFrame(pd.DataFrame, metaclass=MetaClass):
     _metadata = ["_fn"]
-    signals = None
-
-    def __init__(self, *args, fn=None, **kwargs):
-        super().__init__(*args, **kwargs)
-        if not self.signals:
-            QtFrame.signals = Signals()
+    signals = Signals()
 
     @property
     def _constructor(self):
@@ -170,18 +164,18 @@ class QtFrame(pd.DataFrame, metaclass=MetaClass):
             copied._geometry_column_name = self._geometry_column_name
         return copied
 
-    def __finalize__(self, other, method=None, **kwargs):
-        """propagate metadata from other to self"""
-        self = super().__finalize__(other, method=method, **kwargs)
-        # merge operation: using metadata of the left object
-        if method == "merge":
-            for name in self._metadata:
-                self.__setattr__(self, name, getattr(other.left, name, None))
-        # concat operation: using metadata of the first object
-        elif method == "concat":
-            for name in self._metadata:
-                self.__setattr__(self, name, getattr(other.objs[0], name, None))
-        return self
+    # def __finalize__(self, other, method=None, **kwargs):
+    #     """Propagate metadata from other to self."""
+    #     self = super().__finalize__(other, method=method, **kwargs)
+    #     # merge operation: using metadata of the left object
+    #     if method == "merge":
+    #         for name in self._metadata:
+    #             self.__setattr__(name, getattr(other.left, name, None))
+    #     # concat operation: using metadata of the first object
+    #     elif method == "concat":
+    #         for name in self._metadata:
+    #             self.__setattr__(name, getattr(other.objs[0], name, None))
+    #     return self
 
 
 app = core.app()

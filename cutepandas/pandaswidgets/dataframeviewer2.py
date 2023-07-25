@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import pandas as pd
+
 from prettyqt import constants, core, gui, widgets
+
 
 MAX_AUTOSIZE_MS = 150  # Milliseconds given (at most) to perform column auto-sizing
 MIN_TRUNC_CHARS = 8  # Minimum size (in characters) given to columns

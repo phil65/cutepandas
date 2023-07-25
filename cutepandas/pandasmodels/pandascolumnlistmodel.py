@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import enum
 import logging
+
 from typing import Any
 
 import numpy as np
 import pandas as pd
+
 from prettyqt import constants, core, itemmodels
 from prettyqt.utils import helpers
+
 
 logger = logging.getLogger(__name__)
 
@@ -208,18 +211,14 @@ class PandasIndexListModel(itemmodels.ModelMixin, core.AbstractTableModel):
         if not index.isValid():
             return False
         match role:
-            case constants.EDIT_ROLE:
-                if index.column() == 0:
-                    level = (
-                        index.row() if isinstance(self.df.index, pd.MultiIndex) else None
-                    )
-                    self.df.index = self.df.index.set_names(names=value, level=level)
-                    return True
-            case constants.USER_ROLE:
-                if not isinstance(self.df.index, pd.MultiIndex):
-                    with self.change_layout():
-                        self.df.index = value
-                    return True
+            case constants.EDIT_ROLE if index.column() == 0:
+                level = index.row() if isinstance(self.df.index, pd.MultiIndex) else None
+                self.df.index = self.df.index.set_names(names=value, level=level)
+                return True
+            case constants.USER_ROLE if not isinstance(self.df.index, pd.MultiIndex):
+                with self.change_layout():
+                    self.df.index = value
+                return True
             case self.DTYPE_ROLE:
                 try:
                     with self.change_layout():
@@ -228,6 +227,7 @@ class PandasIndexListModel(itemmodels.ModelMixin, core.AbstractTableModel):
                 except TypeError as e:
                     logger.exception(e)
                     return False
+        return False
 
     def removeRows(self, row, count, parent):
         with self.remove_rows(row, row + count, parent):

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import enum
 import logging
+
 from typing import Any
 
 import numpy as np
 import pandas as pd
+
 from prettyqt import constants, core
+
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +159,7 @@ class VerticalHeaderModel(core.AbstractTableModel):
                     return str(self.df.index.values[row][col])
                 else:
                     return str(self.df.index.values[row])
+        return None
 
     def headerData(
         self,
@@ -169,6 +173,7 @@ class VerticalHeaderModel(core.AbstractTableModel):
                     return str(self.df.index.names[section])
                 else:
                     return str(self.df.index.name)
+        return None
 
 
 class HorizontalHeaderModel(core.AbstractTableModel):

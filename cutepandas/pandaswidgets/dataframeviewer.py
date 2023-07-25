@@ -5,8 +5,11 @@ import threading
 
 import numpy as np
 import pandas as pd
+
 from prettyqt import constants, core, custom_widgets, gui, widgets
-from prettyqt.qtpandas import pandasmodels
+
+from cutepandas import pandasmodels
+
 
 logger = logging.getLogger(__name__)
 
