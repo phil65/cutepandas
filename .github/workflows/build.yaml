@@ -32,28 +32,23 @@ jobs:
         run: sudo apt-get install -y libopengl0 libegl1-mesa libxcb-xinput0
 
       - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install poetry
-          poetry install -E pyside6
+        run: uv sync --all-extras
 
       - name: Test with pytest
         uses: GabrielBB/xvfb-action@v1
         timeout-minutes: 5
         with:
           run: |
-            poetry run pytest --doctest-modules --junitxml=junit/test-results.xml --cov=cutepandas --cov-report=xml --cov-report=html
+            uv run pytest --doctest-modules --junitxml=junit/test-results.xml --cov=cutepandas --cov-report=xml --cov-report=html
 
       - name: Create documentation
         if: matrix.python-version == '3.12' && runner.os == 'Linux'
         run: |
-          poetry run mkdocs build
+          uv run mkdocs build
 
       - name: Build and publish
         if: startsWith(github.ref, 'refs/tags/v') && matrix.python-version == '3.12' && runner.os == 'Linux'
-        run: |
-          poetry config pypi-token.pypi ${{ secrets.PYPI_SECRET }}
-          poetry publish --build
+        run: uv publish
 
       - name: Deploy docs
         if: startsWith(github.ref, 'refs/tags/v') && matrix.python-version == '3.12' && runner.os == 'Linux'
@@ -79,16 +74,13 @@ jobs:
         uses: yezz123/setup-uv@v4
 
       - name: Install packages
-        # if: runner.os == 'Linux'
-        run: |
-          pip install poetry
-          poetry install -E pyside6
-          poetry run mkdocs build
+        run: uv sync --extra pyside6
 
-      - name: Build and publish
-        run: |
-          poetry config pypi-token.pypi ${{ secrets.PYPI_SECRET }}
-          poetry publish --build
+      - name: Build docs
+        run: uv run mkdocs build
+
+      - name: Publish on PyPi
+        run: uv publish
 
       - name: Deploy docs
         uses: peaceiris/actions-gh-pages@v3

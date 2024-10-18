@@ -23,10 +23,6 @@ repos:
       - id: commitizen
         stages: [commit-msg]
         additional_dependencies: [typing-extensions]
-  - repo: https://github.com/ambv/black
-    rev: 24.10.0
-    hooks:
-      - id: black
 
   - repo: https://github.com/charliermarsh/ruff-pre-commit
     rev: v0.7.0

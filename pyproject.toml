@@ -1,59 +1,48 @@
-[tool.poetry]
-name = "CutePandas"
+[project]
+name = "cutepandas"
 version = "0.3.2"
 description = "Qt Widgets and Objects for Pandas datastructures"
-readme = 'docs/index.md'
-repository = "https://github.com/phil65/cutepandas"
-homepage = "https://github.com/phil65/cutepandas"
-authors = ["phil65 <philipptemminghoff@googlemail.com>"]
-packages = [{ include = "cutepandas" }]
+readme = "docs/index.md"
+requires-python = ">=3.11,<3.13"
+authors = [{ name = "phil65", email = "philipptemminghoff@googlemail.com" }]
+dependencies = ["pandas", "prettyqt"]
 
-[tool.poetry.dependencies]
-python = ">=3.11,<3.13"
-pandas = "*"
-prettyqt = "*"
-PyQt6 = { version = "^6.7", optional = true }
-PyQt6-Charts = { version = "^6.7", optional = true }
-PyQt6-WebEngine = { version = "^6.7", optional = true }
-PyQt6-QScintilla = { version = "^2.0", optional = true }
-pyside6 = { version = "^6.7", optional = true }
-
-
-[tool.poetry.dev-dependencies]
-pip = "^24"
-
-pytest = "^8"
-pytest-cov = "^5"
-pytest-qt = { version = "^4.1" }
-pytest-xvfb = { version = "^2", markers = "sys_platform == 'linux'" }
-coverage = "^7"
-
-mypy = "^1"
-types-Deprecated = "^1.2"
-types-docutils = "^0"
-types-orjson = "^3.6"
-
-mkdocs = "^1"
-mknodes = "*"
-mkdocs-material = "^9"
-mkdocstrings = { version = "^0", extras = ["python"] }
-mkdocs-glightbox = "*"
-mkdocs-section-index = "^0.3.5"
-# mkdocs-macros-plugin = "^1"
-markdown-exec = "*"
-mkdocs-literate-nav = "^0.6.0"
-mkdocs-gen-files = "^0.5.0"
-pymdown-extensions = "^10"
-
-
-black = "^24"
-devtools = "^0"
-commitizen = "^3"
-
-[tool.poetry.extras]
+[project.optional-dependencies]
 pyside6 = ["pyside6"]
 pyqt6 = ["pyqt6", "PyQt6-Charts", "PyQt6-WebEngine", "PyQt6-QScintilla"]
 addons = ["docutils", "orjson"]
+
+[project.urls]
+Homepage = "https://github.com/phil65/cutepandas"
+Repository = "https://github.com/phil65/cutepandas"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest",
+    "pytest-cov",
+    "pytest-qt",
+    "pytest-xvfb",
+    "coverage",
+    "types-Deprecated",
+    "types-docutils",
+    "types-orjson",
+    "mkdocs",
+    "mknodes",
+    "mkdocs-material",
+    "mkdocstrings[python]",
+    "mkdocs-glightbox",
+    "mkdocs-section-index",
+    "markdown-exec",
+    "mkdocs-literate-nav",
+    "mkdocs-gen-files",
+    "pymdown-extensions",
+    "devtools",
+    "commitizen",
+]
 
 [tool.pytest.ini_options]
 minversion = "7.0"
@@ -66,8 +55,13 @@ log_cli = true
 log_format = "%(asctime)s %(levelname)s %(message)s"
 log_date_format = "%Y-%m-%d %H:%M:%S"
 
+
 [tool.ruff]
 line-length = 90
+extend-exclude = ['docs', '__init__.py', "prettyqt/qt/"]
+target-version = "py311"
+
+[tool.ruff.lint]
 select = [
     # "A",    # Flake8-builtins
     # "ANN",  # Flake8-Annotations
@@ -157,37 +151,16 @@ ignore = [
     "RUF012", # Mutable class attributes should be annotated
     "RUF013", # PEP 484 prohibits implicit `Optional`
 ]
-extend-exclude = ['docs', '__init__.py', "prettyqt/qt/"]
-target-version = "py310"
 
 [tool.ruff.lint.flake8-quotes]
 docstring-quotes = "double"
 
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 lines-after-imports = 2
 lines-between-types = 1
 # atomic = true
 force-sort-within-sections = true
 combine-as-imports = true
-
-[tool.black]
-line-length = 90
-target-version = ['py310']
-include = '\.pyi?$'
-exclude = '''
-/(
-    \.eggs
-  | \.git
-  | \.hg
-  | \.mypy_cache
-  | \.venv
-  | _build
-  | buck-out
-  | build
-  | dist
-)/
-'''
-
 
 [tool.commitizen]
 name = "cz_conventional_commits"
@@ -197,7 +170,3 @@ update_changelog_on_bump = true
 changelog_start_rev = "v0.1.0"
 changelog_file = "docs/changelog.md"
 version_files = ["cutepandas/__init__.py:__version__", "pyproject.toml:version"]
-
-[build-system]
-requires = ["poetry_core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"

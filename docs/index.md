@@ -28,7 +28,7 @@ In the `cutepandas` directory (same one where you found this file after
 cloning the git repo), execute:
 
 ```sh
-poetry install
+uv sync --extra pyside6
 ```
 
 ## License
