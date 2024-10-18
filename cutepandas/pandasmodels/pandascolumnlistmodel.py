@@ -308,7 +308,7 @@ class PandasIndexListModel(itemmodels.ModelMixin, core.AbstractTableModel):
     def dropMimeData(self, mime_data, action, row, column, parent_index):
         if parent_index.isValid():
             return False
-
+        assert self.df
         if mime_data.hasFormat(self.MIME_TYPE):
             data = mime_data.get_json_data(self.MIME_TYPE)
             names = list(self.df.index.names)
@@ -328,6 +328,7 @@ class PandasIndexListModel(itemmodels.ModelMixin, core.AbstractTableModel):
         return [self.MIME_TYPE]
 
     def get_index(self, row=None):
+        assert self.df
         idx = self.df.index
         # using get_level_values() is too slow for large datasets with multiindex
         return idx.levels[row] if isinstance(idx, pd.MultiIndex) else idx

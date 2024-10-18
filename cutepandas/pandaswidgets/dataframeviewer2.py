@@ -479,6 +479,7 @@ class DataFrameViewer(widgets.Widget):
         return False
 
     def _resize_visible_columns_to_contents(self):
+        assert self._model
         width = self._model.shape[1]
         col, end = self.table_data.get_visible_section_span("horizontal")
         while col < end:

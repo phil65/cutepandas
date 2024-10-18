@@ -168,6 +168,10 @@ combine-as-imports = true
 preview = true
 docstring-code-format = true
 
+[tool.mypy]
+python_version = "3.11"
+check_untyped_defs = true
+
 [tool.commitizen]
 name = "cz_conventional_commits"
 version = "0.3.2"
