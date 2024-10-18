@@ -5,7 +5,6 @@ import threading
 
 import numpy as np
 import pandas as pd
-
 from prettyqt import constants, core, custom_widgets, gui, widgets
 
 from cutepandas import pandasmodels
@@ -199,6 +198,7 @@ class DataFrameViewer(widgets.Widget):
     #     self.table_index._on_selection_changed(selected, deselected)
 
     def on_clicked(self, ix: core.QModelIndex):
+        assert self.df
         self.df = self.df.sort_values(self.df.columns[ix.column()])
         self.data_changed()
 

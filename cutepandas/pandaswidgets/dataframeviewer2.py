@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pandas as pd
-
 from prettyqt import constants, core, gui, widgets
 
 
@@ -358,6 +357,7 @@ class DataFrameViewer(widgets.Widget):
         self.table_level.v_header.setFixedWidth(h_width)
         self.table_index.v_header.setFixedWidth(h_width)
 
+        assert self._model
         last_row = self._model.header_shape[0] - 1
         if last_row < 0:
             hdr_height = self.table_level.h_header.height()
@@ -388,6 +388,7 @@ class DataFrameViewer(widgets.Widget):
         data_model = DataFrameDataModel(model, parent=self.table_data)
         self.table_data.set_model(data_model)
         sel_model = self.table_data.selectionModel()
+        assert sel_model
         sel_model.selectionChanged.connect(
             lambda *_: self._select_columns(
                 self.table_data, self.table_header, self.table_level
@@ -405,6 +406,7 @@ class DataFrameViewer(widgets.Widget):
         )
         self.table_level.set_model(level_model)
         sel_model = self.table_level.selectionModel()
+        assert sel_model
         sel_model.selectionChanged.connect(
             lambda *_: self._select_columns(
                 self.table_level, self.table_index, self.table_data
@@ -421,6 +423,7 @@ class DataFrameViewer(widgets.Widget):
         )
         self.table_header.set_model(header_model)
         sel_model = self.table_header.selectionModel()
+        assert sel_model
         sel_model.selectionChanged.connect(
             lambda *_: self._select_columns(
                 self.table_header, self.table_data, self.table_index
@@ -435,6 +438,7 @@ class DataFrameViewer(widgets.Widget):
         index_model = DataFrameHeaderModel(model, "vertical", self.palette())
         self.table_index.set_model(index_model)
         sel_model = self.table_index.selectionModel()
+        assert sel_model
         sel_model.selectionChanged.connect(
             lambda *_: self._select_rows(
                 self.table_index, self.table_data, self.table_header
@@ -453,6 +457,7 @@ class DataFrameViewer(widgets.Widget):
     def setCurrentIndex(self, y: int, x: int):
         index = self.table_data.model().index(y, x)
         sel_model = self.table_data.selectionModel()
+        assert sel_model
         sel_model.setCurrentIndex(index, SelectionFlag.ClearAndSelect)
 
     def _resize_column_to_contents(
@@ -468,7 +473,7 @@ class DataFrameViewer(widgets.Widget):
             width = min(self.max_width, hdr_width)
         header.setColumnWidth(col, width)
 
-    def eventFilter(self, obj: widgets.TableView, event: core.QEvent) -> bool:
+    def eventFilter(self, obj: core.QObject, event: core.QEvent) -> bool:
         if obj == self.table_data and event.type() == core.Event.Type.Resize:
             self._resize_visible_columns_to_contents()
         return False

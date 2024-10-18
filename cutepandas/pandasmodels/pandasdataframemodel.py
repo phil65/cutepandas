@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import enum
 import logging
-
 from typing import Any
 
 import numpy as np
 import pandas as pd
-
 from prettyqt import constants, core
 
 
@@ -65,7 +63,7 @@ class PandasDataFrameModel(core.AbstractTableModel):
     def columnCount(self, parent: core.ModelIndex | None = None) -> int:
         if self.df is None:
             return 0
-        return 1 if type(self.df) == pd.Series else len(self.df.columns)
+        return 1 if type(self.df) is pd.Series else len(self.df.columns)
 
     def rowCount(self, parent: core.ModelIndex | None = None) -> int:
         return len(self.df.index) if self.df is not None else 0

@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import enum
 import logging
-
 from typing import Any
 
 import numpy as np
 import pandas as pd
-
 from prettyqt import constants, core, itemmodels
 from prettyqt.utils import helpers
 
@@ -210,6 +208,7 @@ class PandasIndexListModel(itemmodels.ModelMixin, core.AbstractTableModel):
     ) -> bool:
         if not index.isValid():
             return False
+        assert self.df
         match role:
             case constants.EDIT_ROLE if index.column() == 0:
                 level = index.row() if isinstance(self.df.index, pd.MultiIndex) else None
@@ -230,6 +229,7 @@ class PandasIndexListModel(itemmodels.ModelMixin, core.AbstractTableModel):
         return False
 
     def removeRows(self, row, count, parent):
+        assert self.df
         with self.remove_rows(row, row + count, parent):
             self.df = self.df.drop(labels=self.df.columns[row : row + count], axis=1)
         return True
@@ -237,6 +237,7 @@ class PandasIndexListModel(itemmodels.ModelMixin, core.AbstractTableModel):
     def flags(self, index: core.ModelIndex) -> constants.ItemFlag:
         if not index.isValid():
             return constants.DROP_ENABLED
+        assert self.df
         is_range = self.df.index.name is None and isinstance(self.df.index, pd.RangeIndex)
         match index.column(), is_range:
             case 0, True:
@@ -258,6 +259,7 @@ class PandasIndexListModel(itemmodels.ModelMixin, core.AbstractTableModel):
     ):
         if not index.isValid():
             return None
+        assert self.df
         match role, index.column():
             # case constants.DECORATION_ROLE, 0:
             #     index = self.get_index(index.row())
@@ -331,10 +333,12 @@ class PandasIndexListModel(itemmodels.ModelMixin, core.AbstractTableModel):
         return idx.levels[row] if isinstance(idx, pd.MultiIndex) else idx
 
     def to_datetime(self, level=None, fmt: str | None = None):
+        assert self.df
         with self.change_layout():
             self.df.index = self.df.index.pt.to_datetime(level=level, fmt=fmt)
 
     def filter_range(self, start: int, end: int):
+        assert self.df
         with self.change_layout():
             self.df = self.df.iloc[start:end]
         return True

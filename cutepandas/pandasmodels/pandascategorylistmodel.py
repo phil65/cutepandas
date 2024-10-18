@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import logging
-
 from typing import Any
 
 import numpy as np
 import pandas as pd
-
 from prettyqt import constants, core, itemmodels
 from prettyqt.utils import helpers
 
@@ -25,7 +23,13 @@ class PandasCategoryListModel(itemmodels.ModelMixin, core.AbstractTableModel):
 
     @property
     def series(self):
+        assert self.df is not None
         return self.df[self.col]
+
+    @series.setter
+    def series(self, series):
+        assert self.df is not None
+        self.df[self.col] = series
 
     def setData(
         self,
@@ -61,6 +65,7 @@ class PandasCategoryListModel(itemmodels.ModelMixin, core.AbstractTableModel):
         #     if index.column() == 0:
         #         return iconprovider.get_icon(iconnames.CATEGORY, as_qicon=True)
         cat_name = self.series.cat.categories[index.row()]
+        assert self.df
         match role, index.column():
             case constants.DISPLAY_ROLE | constants.EDIT_ROLE, 0:
                 return helpers.format_name(cat_name)

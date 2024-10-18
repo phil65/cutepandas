@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import enum
 import logging
-
 from typing import Any
 
 import polars as pl
-
 from prettyqt import constants, core
 
 
@@ -103,17 +101,15 @@ if __name__ == "__main__":
     from prettyqt import widgets
 
     app = widgets.app()
-    df = pl.DataFrame(
-        {
-            "integer": [1, 2, 3],
-            "date": [
-                datetime(2022, 1, 1),
-                datetime(2022, 1, 2),
-                datetime(2022, 1, 3),
-            ],
-            "float": [4.0, 5.0, 6.0],
-        }
-    )
+    df = pl.DataFrame({
+        "integer": [1, 2, 3],
+        "date": [
+            datetime(2022, 1, 1),
+            datetime(2022, 1, 2),
+            datetime(2022, 1, 3),
+        ],
+        "float": [4.0, 5.0, 6.0],
+    })
     table = widgets.TableView()
     table.show()
     model = PolarsDataFrameModel(df, parent=table)

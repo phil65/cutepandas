@@ -1,14 +1,13 @@
 """for full list, see:- https://cdn.materialdesignicons.com/5.4.55/ ."""
 
 import pandas as pd
-
 from prettyqt import iconprovider
 
 from cutepandas.constants import iconnames
 
 
 def icon_for_dtype(dtype):
-    if dtype == bool:
+    if dtype is bool:
         icon = iconnames.BOOL
     elif str(dtype) == "category":
         icon = iconnames.BOOKMARK

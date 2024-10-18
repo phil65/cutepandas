@@ -1,7 +1,6 @@
 from functools import wraps
 
 import pandas as pd
-
 from prettyqt import core
 
 

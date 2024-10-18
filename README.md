@@ -23,12 +23,12 @@ pip install cutepandas
 
 ## Installation from sources
 
-This project uses poetry for dependency management and packaging. Install this first.
+This project uses uv for dependency management and packaging. Install this first.
 In the `cutepandas` directory (same one where you found this file after
 cloning the git repo), execute:
 
 ```sh
-poetry install
+uv sync --all-extras
 ```
 
 ## License
