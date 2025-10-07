@@ -3,154 +3,142 @@ name = "cutepandas"
 version = "0.3.2"
 description = "Qt Widgets and Objects for Pandas datastructures"
 readme = "docs/index.md"
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.12"
 authors = [{ name = "phil65", email = "philipptemminghoff@googlemail.com" }]
 dependencies = ["pandas", "prettyqt"]
-
-[project.optional-dependencies]
-pyside6 = ["pyside6"]
-pyqt6 = ["pyqt6", "PyQt6-Charts", "PyQt6-WebEngine", "PyQt6-QScintilla"]
-addons = ["docutils", "orjson"]
 
 [project.urls]
 Homepage = "https://github.com/phil65/cutepandas"
 Repository = "https://github.com/phil65/cutepandas"
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+[project.optional-dependencies]
+addons = ["docutils", "orjson"]
+pyqt6 = ["pyqt6", "PyQt6-Charts", "PyQt6-WebEngine", "PyQt6-QScintilla"]
+pyside6 = ["pyside6"]
 
-[tool.uv]
-dev-dependencies = [
-    "pytest",
-    "pytest-cov",
-    "pytest-qt",
-    "pytest-xvfb",
-    "coverage",
-    "types-Deprecated",
-    "types-docutils",
-    "types-orjson",
-    "mkdocs",
-    "mknodes",
-    "mkdocs-material",
-    "mkdocstrings[python]",
-    "mkdocs-glightbox",
-    "mkdocs-section-index",
-    "markdown-exec",
-    "mkdocs-literate-nav",
-    "mkdocs-gen-files",
-    "pymdown-extensions",
-    "devtools",
-    "commitizen",
-]
+[build-system]
+requires = ["uv_build>=0.8.22"]
+build-backend = "uv_build"
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.3.2"
+tag_format = "v$version"
+update_changelog_on_bump = true
+changelog_start_rev = "v0.1.0"
+changelog_file = "docs/changelog.md"
+version_files = ["cutepandas/__init__.py:__version__", "pyproject.toml:version"]
+
+[tool.mypy]
+python_version = "3.12"
+check_untyped_defs = true
 
 [tool.pytest.ini_options]
+junit_family = "xunit2"
+log_cli = true
+log_date_format = "%Y-%m-%d %H:%M:%S"
+log_format = "%(asctime)s %(levelname)s %(message)s"
 minversion = "7.0"
 testpaths = ["tests"]
-junit_family = "xunit2"
 qt_qapp_name = "cutepandas-test"
 # qt_api = "pyside6"
 qt_log_level_fail = "CRITICAL"
-log_cli = true
-log_format = "%(asctime)s %(levelname)s %(message)s"
-log_date_format = "%Y-%m-%d %H:%M:%S"
-
 
 [tool.ruff]
 line-length = 90
-extend-exclude = ['docs', '__init__.py', "prettyqt/qt/"]
-target-version = "py311"
+extend-exclude = ["docs", "__init__.py", "prettyqt/qt/"]
+target-version = "py312"
 
 [tool.ruff.lint]
 preview = true
 select = [
-    # "A",    # Flake8-builtins
-    # "ANN",  # Flake8-Annotations
-    # "ASYNC",  # Flake8-Async
-    # "ARG",  # # Flake8-Unused-Arguments
-    "B", # flake8-bugbear
-    # "BLE",  # Flake8-blind-except
-    "C",
-    "C4", # flake8-comprehensions
-    # "C90",  # MCCabe
-    # "COM",  #  Flake8-commas
-    # "CPY", #  Copyright-related rules
-    "D",   # PyDocStyle
-    # "DTZ",  # Flake8- Datetimez
-    "E", # PyCodeStyle Error
-    # "EM",   # flake8-errmsg
-    # "ERA",  #  Eradicate
-    "EXE", # flake8-executable
-    "F",   # PyFlakes
-    "FA",  # flake8-future-annotations
-    # "FBT",  # flake8-boolean-trap
-    # "FIX",  # flake8-fixme
-    "FLY", # flynt
-    # "G",    #  flake8-logging-format
-    "I",   # ISort
-    "ICN", # Flake8-import-conventions
-    "INP", # flake8-no-pep420
-    "INT", # flake8-gettext
-    "ISC", # flake8-implicit-str-concat
-    # "N",    # pep8-naming
-    # "NPY",  # numpy-specific rules
-    # "PD",   # pandas-vet
-    "PERF", # perflint
-    # "PGH",  # pygrep-hooks
-    "PIE", # flake8-pie
-    "PLE", # PyLint Error
-    "PLC", # PyLint convention
-    # "PLW",  # PyLint Warning
-    # "PLR",  # PyLint refactor
-    # "PT",   # flake8-pytest-style
-    "PTH", # flake8-use-pathlib
-    "PYI", # flake8-pyi
-    # "Q",    # flake8-quotes
-    # "RET",  # flake8-return
-    "RSE", # flake8-raise
-    "RUF", # ruff-specific rules
-    # "S",    # flake8-bandit
-    # "SIM",  # flake8-simplify
-    "SLF",  # flake8-self
-    "SLOT", # flake8-slots
-    # "T",
-    # "TD",   # flake8-todos
-    "T10", # flake8-debugger
-    # "T20",  # flake8-print
-    # "TCH",  # flake8-type-checking
-    "TID", # flake8-tidy-imports
-    # "TRY",  # tryceratops
-    "UP",  # PyUpgrade
-    "W",   # PyCodeStyle warning
-    "YTT", # flake8-2020
+  # "A",    # Flake8-builtins
+  # "ANN",  # Flake8-Annotations
+  # "ASYNC",  # Flake8-Async
+  # "ARG",  # # Flake8-Unused-Arguments
+  "B",  # flake8-bugbear
+  # "BLE",  # Flake8-blind-except
+  "C",
+  "C4",  # flake8-comprehensions
+  # "C90",  # MCCabe
+  # "COM",  #  Flake8-commas
+  # "CPY", #  Copyright-related rules
+  "D",  # PyDocStyle
+  # "DTZ",  # Flake8- Datetimez
+  "E",  # PyCodeStyle Error
+  # "EM",   # flake8-errmsg
+  # "ERA",  #  Eradicate
+  "EXE",  # flake8-executable
+  "F",  # PyFlakes
+  "FA",  # flake8-future-annotations
+  # "FBT",  # flake8-boolean-trap
+  # "FIX",  # flake8-fixme
+  "FLY",  # flynt
+  # "G",    #  flake8-logging-format
+  "I",  # ISort
+  "ICN",  # Flake8-import-conventions
+  "INP",  # flake8-no-pep420
+  "INT",  # flake8-gettext
+  "ISC",  # flake8-implicit-str-concat
+  # "N",    # pep8-naming
+  # "NPY",  # numpy-specific rules
+  # "PD",   # pandas-vet
+  "PERF",  # perflint
+  # "PGH",  # pygrep-hooks
+  "PIE",  # flake8-pie
+  "PLE",  # PyLint Error
+  "PLC",  # PyLint convention
+  # "PLW",  # PyLint Warning
+  # "PLR",  # PyLint refactor
+  # "PT",   # flake8-pytest-style
+  "PTH",  # flake8-use-pathlib
+  "PYI",  # flake8-pyi
+  # "Q",    # flake8-quotes
+  # "RET",  # flake8-return
+  "RSE",  # flake8-raise
+  "RUF",  # ruff-specific rules
+  # "S",    # flake8-bandit
+  # "SIM",  # flake8-simplify
+  "SLF",  # flake8-self
+  "SLOT",  # flake8-slots
+  # "T",
+  # "TD",   # flake8-todos
+  "T10",  # flake8-debugger
+  # "T20",  # flake8-print
+  # "TCH",  # flake8-type-checking
+  "TID",  # flake8-tidy-imports
+  # "TRY",  # tryceratops
+  "UP",  # PyUpgrade
+  "W",  # PyCodeStyle warning
+  "YTT",  # flake8-2020
 ]
 ignore = [
-    "C408",   # Unnecessary {obj_type} call (rewrite as a literal)
-    "B905",   # zip() without an explicit strict= parameter
-    "C901",   # {name} is too complex ({complexity} > {max_complexity})
-    "D100",   # Missing docstring in public module
-    "D101",   # Missing docstring in public class
-    "D102",   # Missing docstring in public method
-    "D103",   # Missing docstring in public function
-    "D104",   # Missing docstring in public package
-    "D105",   # Missing docstring in magic method
-    "D106",   # Missing docstring in public nested class
-    "D107",   # Missing docstring in __init__
-    "D203",   # 1 blank line required before class docstring
-    "D204",   # 1 blank line required after class docstring
-    "D213",   # Multi-line docstring summary should start at the second line
-    "D215",   # Section underline is over-indented ("{name}")
-    "D400",   # First line should end with a period
-    "D401",   # First line of docstring should be in imperative mood: "{first_line}"
-    "D404",   # First word of the docstring should not be "This"
-    "D406",   # Section name should end with a newline ("{name}")
-    "D407",   # Missing dashed underline after section ("{name}")
-    "D408",   # Section underline should be in the line following the section's name ("{name}")
-    "D409",   # Section underline should match the length of its name ("{name}")
-    "D413",   # Missing blank line after last section ("{name}")
-    "SLF001", # Private member accessed
-    "RUF012", # Mutable class attributes should be annotated
-    "RUF013", # PEP 484 prohibits implicit `Optional`
+  "C408",  # Unnecessary {obj_type} call (rewrite as a literal)
+  "B905",  # zip() without an explicit strict= parameter
+  "C901",  # {name} is too complex ({complexity} > {max_complexity})
+  "D100",  # Missing docstring in public module
+  "D101",  # Missing docstring in public class
+  "D102",  # Missing docstring in public method
+  "D103",  # Missing docstring in public function
+  "D104",  # Missing docstring in public package
+  "D105",  # Missing docstring in magic method
+  "D106",  # Missing docstring in public nested class
+  "D107",  # Missing docstring in __init__
+  "D203",  # 1 blank line required before class docstring
+  "D204",  # 1 blank line required after class docstring
+  "D213",  # Multi-line docstring summary should start at the second line
+  "D215",  # Section underline is over-indented ("{name}")
+  "D400",  # First line should end with a period
+  "D401",  # First line of docstring should be in imperative mood: "{first_line}"
+  "D404",  # First word of the docstring should not be "This"
+  "D406",  # Section name should end with a newline ("{name}")
+  "D407",  # Missing dashed underline after section ("{name}")
+  "D408",  # Section underline should be in the line following the section's name ("{name}")
+  "D409",  # Section underline should match the length of its name ("{name}")
+  "D413",  # Missing blank line after last section ("{name}")
+  "SLF001",  # Private member accessed
+  "RUF012",  # Mutable class attributes should be annotated
+  "RUF013",  # PEP 484 prohibits implicit `Optional`
 ]
 
 [tool.ruff.lint.flake8-quotes]
@@ -168,15 +156,26 @@ combine-as-imports = true
 preview = true
 docstring-code-format = true
 
-[tool.mypy]
-python_version = "3.11"
-check_untyped_defs = true
-
-[tool.commitizen]
-name = "cz_conventional_commits"
-version = "0.3.2"
-tag_format = "v$version"
-update_changelog_on_bump = true
-changelog_start_rev = "v0.1.0"
-changelog_file = "docs/changelog.md"
-version_files = ["cutepandas/__init__.py:__version__", "pyproject.toml:version"]
+[tool.uv]
+dev-dependencies = [
+  "pytest",
+  "pytest-cov",
+  "pytest-qt",
+  "pytest-xvfb",
+  "coverage",
+  "types-Deprecated",
+  "types-docutils",
+  "types-orjson",
+  "mkdocs",
+  "mkdocs_mknodes",
+  "mkdocs-material",
+  "mkdocstrings[python]",
+  "mkdocs-glightbox",
+  "mkdocs-section-index",
+  "markdown-exec",
+  "mkdocs-literate-nav",
+  "mkdocs-gen-files",
+  "pymdown-extensions",
+  "devtools",
+  "commitizen",
+]
