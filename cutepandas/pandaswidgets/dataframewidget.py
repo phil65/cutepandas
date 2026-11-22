@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from prettyqt import constants, core, widgets
+from prettyqt import constants, core, itemmodels, widgets
 
 from cutepandas import pandasmodels, pandaswidgets
 
@@ -28,7 +28,7 @@ class DataFrameWidget(widgets.MainWindow):
         self.column_table.selectionModel().currentChanged.connect(self._on_current_change)
 
         self.data_table = pandaswidgets.DataFrameViewer(df)
-        self.set_central_widget(self.data_table)
+        self.setCentralWidget(self.data_table)
 
         self.category_table = widgets.TableView(selection_behavior="rows")
 
@@ -36,8 +36,7 @@ class DataFrameWidget(widgets.MainWindow):
             selection_behavior="rows", root_is_decorated=False
         )
         if df is not None:
-            self.attrs_table.set_model(df.attrs)
-            self.attrs_table.show_root(False)
+            self.attrs_table.set_model(itemmodels.JsonModel(df.attrs, show_root=False))
 
         self.add_dockwidget(self.index_table, window_title="Index list")
         self.add_dockwidget(self.column_table, window_title="Column list")
@@ -46,8 +45,7 @@ class DataFrameWidget(widgets.MainWindow):
 
     def set_df(self, df: pd.DataFrame):
         if df is not None:
-            self.attrs_table.set_model(df.attrs)
-            self.attrs_table.show_root(False)
+            self.attrs_table.set_model(itemmodels.JsonModel(df.attrs, show_root=False))
         self.data_table.set_df(df)
         model = pandasmodels.PandasIndexListModel(df)
         self.index_table.set_model(model)
