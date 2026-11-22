@@ -30,7 +30,7 @@ class DataTableView(widgets.TableView):
         self.set_size_policy("expanding", "expanding")
         self.set_df(df)
 
-    def set_df(self, df: pd.DataFrame):
+    def set_df(self, df: pd.DataFrame | None):
         model = pandasmodels.PandasDataFrameModel(df, parent=self)
         self.set_model(model)
 
@@ -331,7 +331,8 @@ class DataFrameViewer(widgets.Widget):
             constrained_rect = core.Rect(0, 0, cell_width, 0)
             text = str(text)  # TODO: remove this?
             h = (
-                self.table_data.fontMetrics()
+                self.table_data
+                .fontMetrics()
                 .boundingRect(constrained_rect, constants.TextFlag.TextWordWrap, text)
                 .height()
             )
@@ -346,7 +347,7 @@ class DataFrameViewer(widgets.Widget):
         self.table_data.updateGeometry()
         self.table_index.updateGeometry()
 
-    def keyPressEvent(self, event: core.QEvent):
+    def keyPressEvent(self, event: gui.QKeyEvent):
         super().keyPressEvent(event)
 
         if event.matches(gui.KeySequence.StandardKey.Copy):
@@ -420,7 +421,7 @@ class HeaderView(custom_widgets.OrientedTableView):
         # Set initial size
         self.resize(self.sizeHint())
 
-    def get_higher_levels(self):
+    def get_higher_levels(self, levels: int | None = None) -> core.ItemSelection:
         model = self.model()
         if self.is_horizontal():
             # Get the header's selected columns
@@ -608,10 +609,14 @@ class TrackingSpacer(widgets.Frame):
 
 
 if __name__ == "__main__":
-    from prettyqt import debugging, widgets
+    from prettyqt import widgets
 
     app = widgets.app()
-    df = debugging.example_multiindex_df()
+    df = pd.DataFrame(
+        np.random.default_rng().random((20, 4)),
+        index=pd.MultiIndex.from_product([["a", "b"], range(10)]),
+        columns=pd.MultiIndex.from_product([["x", "y"], ["1", "2"]]),
+    )
     with app.debug_mode():
         view2 = DataFrameViewer(df)
         view2.show()

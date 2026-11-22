@@ -24,7 +24,7 @@ class PandasColumnListModel(itemmodels.ModelMixin, core.AbstractTableModel):
         DTypeRole = constants.USER_ROLE + 4555
         ColumnNameRole = constants.USER_ROLE + 4556
 
-    def __init__(self, df: pd.DataFrame = None, **kwargs):
+    def __init__(self, df: pd.DataFrame | None = None, **kwargs):
         super().__init__(**kwargs)
         self.df = df
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 from prettyqt import constants, core, gui, widgets
 
@@ -509,9 +510,13 @@ class DataFrameViewer(widgets.Widget):
 
 
 if __name__ == "__main__":
-    from prettyqt import debugging, eventfilters
+    from prettyqt import eventfilters
 
-    df = debugging.example_multiindex_df()
+    df = pd.DataFrame(
+        np.random.default_rng().random((20, 4)),
+        index=pd.MultiIndex.from_product([["a", "b"], range(10)]),
+        columns=pd.MultiIndex.from_product([["x", "y"], ["1", "2"]]),
+    )
     app = widgets.app()
     table = DataFrameViewer()
     table.set_df(df)

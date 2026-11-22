@@ -2,10 +2,10 @@
 name = "cutepandas"
 version = "0.3.2"
 description = "Qt Widgets and Objects for Pandas datastructures"
-readme = "docs/index.md"
+readme = "README.md"
 requires-python = ">=3.12"
 authors = [{ name = "phil65", email = "philipptemminghoff@googlemail.com" }]
-dependencies = ["pandas", "prettyqt"]
+dependencies = ["numpy>=1.26", "pandas>=2.0", "prettyqt>=1.59"]
 
 [project.urls]
 Homepage = "https://github.com/phil65/cutepandas"
@@ -13,8 +13,31 @@ Repository = "https://github.com/phil65/cutepandas"
 
 [project.optional-dependencies]
 addons = ["docutils", "orjson"]
+polars = ["polars>=1.0"]
 pyqt6 = ["pyqt6", "PyQt6-Charts", "PyQt6-WebEngine", "PyQt6-QScintilla"]
 pyside6 = ["pyside6"]
+
+[dependency-groups]
+dev = [
+  "commitizen",
+  "deptry",
+  "devtools",
+  "pytest",
+  "pytest-cov",
+  "pytest-qt",
+  "types-Deprecated",
+  "types-docutils",
+  "types-orjson",
+]
+docs = [
+  "mkdocs-material",
+  "mkdocs-mknodes>=1.1.1; python_full_version >= '3.13'",
+]
+lint = [
+  # Pinned on purpose: CI, pre-commit and editors all run exactly these versions.
+  "ruff==0.17.6",
+  "ty==0.0.107",
+]
 
 [build-system]
 requires = ["uv_build>=0.8.22"]
@@ -29,19 +52,29 @@ changelog_start_rev = "v0.1.0"
 changelog_file = "docs/changelog.md"
 version_files = ["cutepandas/__init__.py:__version__", "pyproject.toml:version"]
 
-[tool.mypy]
-python_version = "3.12"
-check_untyped_defs = true
+[tool.deptry]
+extend_exclude = ["docs"]
 
-[tool.pytest.ini_options]
+[tool.deptry.per_rule_ignores]
+# Qt bindings are selectable extras used by prettyqt; addons are optional prettyqt features.
+DEP002 = [
+  "docutils",
+  "orjson",
+  "pyqt6",
+  "PyQt6-Charts",
+  "PyQt6-WebEngine",
+  "PyQt6-QScintilla",
+  "pyside6",
+]
+
+[tool.pytest]
 junit_family = "xunit2"
 log_cli = true
 log_date_format = "%Y-%m-%d %H:%M:%S"
 log_format = "%(asctime)s %(levelname)s %(message)s"
-minversion = "7.0"
-testpaths = ["tests"]
+minversion = "9.0"
+testpaths = ["tests/"]
 qt_qapp_name = "cutepandas-test"
-# qt_api = "pyside6"
 qt_log_level_fail = "CRITICAL"
 
 [tool.ruff]
@@ -50,7 +83,6 @@ extend-exclude = ["docs", "__init__.py", "prettyqt/qt/"]
 target-version = "py312"
 
 [tool.ruff.lint]
-preview = true
 select = [
   # "A",    # Flake8-builtins
   # "ANN",  # Flake8-Annotations
@@ -156,26 +188,18 @@ combine-as-imports = true
 preview = true
 docstring-code-format = true
 
+[tool.ty.environment]
+python-version = "3.12"
+python-platform = "all"
+
+[tool.ty.src]
+include = ["cutepandas"]
+
+[tool.ty.rules]
+incompatible-mutable-override = "ignore"
+
 [tool.uv]
-dev-dependencies = [
-  "pytest",
-  "pytest-cov",
-  "pytest-qt",
-  "pytest-xvfb",
-  "coverage",
-  "types-Deprecated",
-  "types-docutils",
-  "types-orjson",
-  "mkdocs",
-  "mkdocs_mknodes",
-  "mkdocs-material",
-  "mkdocstrings[python]",
-  "mkdocs-glightbox",
-  "mkdocs-section-index",
-  "markdown-exec",
-  "mkdocs-literate-nav",
-  "mkdocs-gen-files",
-  "pymdown-extensions",
-  "devtools",
-  "commitizen",
-]
+default-groups = ["dev", "lint", "docs"]
+
+[tool.uv.build-backend]
+module-root = ""

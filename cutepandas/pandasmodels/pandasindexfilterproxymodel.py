@@ -117,7 +117,7 @@ class PandasStringColumnFilterProxyModel(BasePandasIndexFilterProxyModel):
             self._reset_filter_index(init_value=True)
             self._update_mapping()
             return
-        df = self.get_source_model(skip_proxies=True).df  # type: ignore
+        df = self.get_source_model(skip_proxies=True).df
         match self.filter_mode:
             case "startswith":
                 self._filter_index = df.iloc[:, self._filter_column].str.startswith(
@@ -258,7 +258,7 @@ class PandasMultiStringColumnFilterProxyModel(BasePandasIndexFilterProxyModel):
 
     def set_filters(self, filters: dict[str, str]):
         self._filters = filters
-        df = self.get_source_model(skip_proxies=True).df  # type: ignore
+        df = self.get_source_model(skip_proxies=True).df
         # workaround-ish way to implement "startswith" as an expression
         filter_list = [f"('{v}' <= `{k}` <= '{v}~')" for k, v in self._filters.items()]
         expr = " & ".join(filter_list)

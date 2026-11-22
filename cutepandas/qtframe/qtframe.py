@@ -5,7 +5,7 @@ from prettyqt import core
 
 
 class Signals(core.Object):
-    changed = core.Signal(object)
+    changed = core.Signal(object)  # ty: ignore[missing-argument]
 
 
 TO_DECORATE = [
@@ -156,13 +156,6 @@ class QtFrame(pd.DataFrame, metaclass=MetaClass):
     def _constructor(self):
         return QtFrame
 
-    def copy(self, deep=True):
-        copied = super().copy(deep=deep)
-        if type(copied) is pd.DataFrame:
-            copied.__class__ = QtFrame
-            copied._geometry_column_name = self._geometry_column_name
-        return copied
-
     # def __finalize__(self, other, method=None, **kwargs):
     #     """Propagate metadata from other to self."""
     #     self = super().__finalize__(other, method=method, **kwargs)
@@ -177,9 +170,10 @@ class QtFrame(pd.DataFrame, metaclass=MetaClass):
     #     return self
 
 
-app = core.app()
-frame = QtFrame(dict(a=[1, 2]))
-frame.signals.changed.connect(print)
-frame = frame.T
-frame = frame.T
-frame = frame.T
+if __name__ == "__main__":
+    app = core.app()
+    frame = QtFrame(dict(a=[1, 2]))
+    frame.signals.changed.connect(print)
+    frame = frame.T
+    frame = frame.T
+    frame = frame.T

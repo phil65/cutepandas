@@ -8,8 +8,8 @@ from cutepandas import pandasmodels, pandaswidgets
 
 
 class DataFrameWidget(widgets.MainWindow):
-    current_index_changed = core.Signal(core.ModelIndex)
-    current_row_changed = core.Signal(int)
+    current_index_changed = core.Signal(core.ModelIndex)  # ty: ignore[missing-argument]
+    current_row_changed = core.Signal(int)  # ty: ignore[missing-argument]
 
     def __init__(
         self,
