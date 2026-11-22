@@ -1,15 +1,46 @@
 [project]
 name = "cutepandas"
 version = "0.3.2"
-description = "Qt Widgets and Objects for Pandas datastructures"
+description = "Qt item models, filter proxies and widgets for pandas DataFrames"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "phil65", email = "philipptemminghoff@googlemail.com" }]
+keywords = [
+  "dataframe",
+  "gui",
+  "model-view",
+  "multiindex",
+  "pandas",
+  "pyqt6",
+  "pyside6",
+  "qt",
+  "table",
+  "widgets",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Scientific/Engineering :: Visualization",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Software Development :: User Interfaces",
+  "Typing :: Typed",
+]
 dependencies = ["numpy>=1.26", "pandas>=2.0", "prettyqt>=1.59"]
 
 [project.urls]
+Documentation = "https://phil65.github.io/cutepandas/"
 Homepage = "https://github.com/phil65/cutepandas"
-Repository = "https://github.com/phil65/cutepandas"
+Issues = "https://github.com/phil65/cutepandas/issues"
+Source = "https://github.com/phil65/cutepandas"
 
 [project.optional-dependencies]
 addons = ["docutils", "orjson"]

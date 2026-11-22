@@ -1,5 +1,5 @@
 site_name: "CutePandas"
-site_description: "Qt widgets and item models for pandas data structures"
+site_description: "Qt item models, filter proxies and widgets for pandas DataFrames"
 repo_url: "https://github.com/phil65/cutepandas/"
 site_url: https://phil65.github.io/cutepandas/
 site_author: "Philipp Temminghoff"
