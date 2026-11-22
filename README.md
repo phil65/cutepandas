@@ -3,7 +3,7 @@
 [![PyPI License](https://img.shields.io/pypi/l/cutepandas.svg)](https://pypi.org/project/cutepandas/)
 [![Package status](https://img.shields.io/pypi/status/cutepandas.svg)](https://pypi.org/project/cutepandas/)
 [![Python version](https://img.shields.io/pypi/pyversions/cutepandas.svg)](https://pypi.org/project/cutepandas/)
-[![Build](https://github.com/phil65/cutepandas/actions/workflows/build.yaml/badge.svg)](https://github.com/phil65/cutepandas/actions/workflows/build.yaml)
+[![Build](https://github.com/phil65/cutepandas/actions/workflows/build.yml/badge.svg)](https://github.com/phil65/cutepandas/actions/workflows/build.yml)
 
 **CutePandas** provides Qt item models, fast filter proxies and ready-made widgets for
 displaying pandas DataFrames in Qt applications, including MultiIndex rows and columns.

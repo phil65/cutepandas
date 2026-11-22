@@ -50,7 +50,7 @@ Models keep the DataFrame on `self.df`; views find it through
 | Explorer window with docks | `cutepandas/pandaswidgets/dataframewidget.py` |
 | Dtype icons | `cutepandas/utils/icons.py`, `cutepandas/constants/iconnames.py` |
 | Tests and fixtures | `tests/`, `tests/conftest.py` |
-| CI | `.github/workflows/build.yaml`, `.github/workflows/documentation.yml` |
+| CI | `.github/workflows/build.yml`, `.github/workflows/documentation.yml` |
 | Docs config | `mkdocs.yml` |
 
 ## Commands
