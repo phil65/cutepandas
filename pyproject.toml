@@ -62,6 +62,8 @@ dev = [
 ]
 docs = [
   "mkdocs-mknodes>=2.1.0; python_full_version >= '3.13'",
+  # 3.1.1: class pages for metaclasses (qtframe.MetaClass) no longer crash
+  "mknodes>=3.1.1; python_full_version >= '3.13'",
   # Zensical renders the API pages' `:::` blocks through mkdocstrings
   # (mknodes >= 3 no longer pulls it in).
   "mkdocstrings[python]>=1.0",
