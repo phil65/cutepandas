@@ -100,7 +100,9 @@ commit messages (conventional commits).
 - The `docs` group's `mkdocs-mknodes` only installs on Python >= 3.13 (marker); CI tests
   run with `--no-group docs`.
 - Docs are the mkdocs-mknodes default site: `README.md` is the index page; API pages are
-  generated. `docs/changelog.md` is written by commitizen (`cz bump`).
+  generated. mkdocs-mknodes >= 2 builds with Zensical (not MkDocs); the generated API
+  pages need `mkdocstrings[python]` (in the `docs` group), and the build writes a
+  gitignored `mkdocs.generated.yml`. `docs/changelog.md` is written by commitizen (`cz bump`).
 - `Makefile` still references poetry and is outdated; prefer the commands above.
 - Modules with `if __name__ == "__main__":` demos create a QApplication; never put demo
   code at module level (docs build and tests import every module).

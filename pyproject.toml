@@ -61,8 +61,10 @@ dev = [
   "types-orjson",
 ]
 docs = [
-  "mkdocs-material>=9.8.2",
   "mkdocs-mknodes>=2.1.0; python_full_version >= '3.13'",
+  # Zensical renders the API pages' `:::` blocks through mkdocstrings
+  # (mknodes >= 3 no longer pulls it in).
+  "mkdocstrings[python]>=1.0",
 ]
 lint = [
   # Pinned on purpose: CI, pre-commit and editors all run exactly these versions.

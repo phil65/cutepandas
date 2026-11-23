@@ -59,6 +59,7 @@ data.pkl
 
 # Mkdocs documentation
 site/
+mkdocs.generated.yml
 
 # PyBuilder
 target/
