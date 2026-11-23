@@ -1,57 +1,201 @@
 from __future__ import annotations
 
 import logging
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Literal, get_args
 
 import numpy as np
 import pandas as pd
 from prettyqt import constants, core
 
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+
 logger = logging.getLogger(__name__)
 
 
-FilterModeStr = Literal["startswith", "endswith", "containts", "match"]
+FilterModeStr = Literal["startswith", "endswith", "contains", "match"]
+FILTER_MODES: tuple[str, ...] = get_args(FilterModeStr)
+
+# Source signals after which the row mapping has to be rebuilt. Each pair is
+# (about-to signal, done signal); the proxy answers them with a model reset.
+_STRUCTURE_SIGNALS = [
+    ("modelAboutToBeReset", "modelReset"),
+    ("layoutAboutToBeChanged", "layoutChanged"),
+    ("rowsAboutToBeInserted", "rowsInserted"),
+    ("rowsAboutToBeRemoved", "rowsRemoved"),
+    ("rowsAboutToBeMoved", "rowsMoved"),
+    ("columnsAboutToBeInserted", "columnsInserted"),
+    ("columnsAboutToBeRemoved", "columnsRemoved"),
+    ("columnsAboutToBeMoved", "columnsMoved"),
+]
 
 
-class BasePandasIndexFilterProxyModel(core.IdentityProxyModel):
-    """Base Proxy to filter a pandas dataframe based on an calculated index.
+def _as_string_series(series: pd.Series) -> pd.Series:
+    """Return a Series usable with the `.str` accessor, keeping missing values."""
+    if series.dtype == object or pd.api.types.is_string_dtype(series.dtype):
+        return series
+    return series.astype("string")
 
-    Mappings in both directions are calculated then with numpy methods.
 
-    Faster filter model compared to row-based SortFilterProxyModel approach.
-    Doesnt need a copy of whole dataframe, only mapping indexes are built.
+def _to_mask(result: Any, length: int, na_value: bool = False) -> np.ndarray:
+    """Turn a boolean-ish Series into a plain NumPy bool mask (NA -> na_value)."""
+    if not isinstance(result, pd.Series) or len(result) != length:
+        return np.zeros(length, dtype=bool)
+    if not (pd.api.types.is_bool_dtype(result.dtype) or result.dtype == object):
+        return np.zeros(length, dtype=bool)
+    # Object / nullable boolean results may hold NA; fillna keeps the mask boolean.
+    return result.fillna(na_value).to_numpy(dtype=bool)
 
-    There are lot of use cases though where the better option probably is to not
-    use any proxy model at all, but just work on a copy of the dataframe.
 
-    Note: Dataframe proxies cant be chained right now.
+class BasePandasIndexFilterProxyModel(core.AbstractProxyModel):
+    """Base proxy to filter a pandas DataFrame based on a calculated boolean index.
+
+    Subclasses implement `compute_filter`, returning a boolean mask (one entry per
+    source row) or None to show all rows. Mappings in both directions are then
+    calculated with NumPy.
+
+    Faster than the row-based SortFilterProxyModel approach, and it doesn't need a
+    copy of the DataFrame: only the mapping arrays are built.
+
+    The mask is recomputed whenever the source model changes its structure (reset,
+    layout change such as sorting, inserted / removed / moved rows or columns).
+
+    Note: the DataFrame is taken from the innermost source model, so these proxies
+    must sit directly on top of a DataFrame model (they can't be chained).
     """
 
     def __init__(self, **kwargs):
-        self._filter_index = np.ndarray(0)
-        self._source_to_proxy = np.ndarray(0)
-        self._proxy_to_source = np.ndarray(0)
+        self._filter_index = np.ones(0, dtype=bool)
+        self._source_to_proxy = np.zeros(0, dtype=np.intp)
+        self._proxy_to_source = np.zeros(0, dtype=np.intp)
         self._row_count = 0
+        self._connections: list[tuple[Any, Any]] = []
         super().__init__(**kwargs)
 
-    def setSourceModel(self, model):
-        super().setSourceModel(model)
-        self._reset_filter_index(True)
-        self._update_mapping()
+    # --- filter computation ---
 
-    def _update_mapping(self):
+    def compute_filter(self, df: pd.DataFrame) -> np.ndarray | None:
+        """Return a boolean mask with one entry per row, or None for "show all"."""
+        return None
+
+    def get_df(self) -> pd.DataFrame | None:
+        source = self.get_source_model(skip_proxies=True)
+        return getattr(source, "df", None)
+
+    def invalidate_filter(self):
+        """Recompute the filter mask and reset the proxy."""
         with self.reset_model():
-            self._row_count = self._filter_index.sum()
-            self._source_to_proxy = np.cumsum(self._filter_index) - 1
-            self._proxy_to_source = np.where(self._filter_index == True)[0]  # noqa: E712
+            self._apply_filter()
 
-    def _reset_filter_index(self, init_value: bool):
-        rowcount = self.sourceModel().rowCount()
-        self._filter_index = np.full(rowcount, init_value, dtype=bool)
+    def _apply_filter(self):
+        source = self.sourceModel()
+        rowcount = source.rowCount() if source is not None else 0
+        mask = None
+        df = self.get_df()
+        if df is not None and rowcount:
+            try:
+                mask = self.compute_filter(df)
+            except Exception:
+                logger.exception("Filtering failed, showing no rows")
+                mask = np.zeros(rowcount, dtype=bool)
+        if mask is None:
+            mask = np.ones(rowcount, dtype=bool)
+        mask = np.asarray(mask, dtype=bool)
+        if len(mask) != rowcount:
+            logger.warning("Filter mask has %s entries for %s rows", len(mask), rowcount)
+            mask = np.zeros(rowcount, dtype=bool)
+        self._filter_index = mask
+        self._source_to_proxy = np.cumsum(mask) - 1
+        self._proxy_to_source = np.flatnonzero(mask)
+        self._row_count = len(self._proxy_to_source)
 
-    def rowCount(self, index: core.ModelIndex | None = None) -> int:
+    # --- source model handling ---
+
+    def setSourceModel(self, model):
+        for signal, slot in self._connections:
+            signal.disconnect(slot)
+        self._connections = []
+        with self.reset_model():
+            super().setSourceModel(model)
+            self._apply_filter()
+        if model is None:
+            return
+        for about_to, done in _STRUCTURE_SIGNALS:
+            self._connect(getattr(model, about_to), self._on_source_about_to_change)
+            self._connect(getattr(model, done), self._on_source_changed)
+        self._connect(model.dataChanged, self._on_source_data_changed)
+        self._connect(model.headerDataChanged, self._on_source_header_changed)
+
+    def _connect(self, signal, slot):
+        signal.connect(slot)
+        self._connections.append((signal, slot))
+
+    def _on_source_about_to_change(self, *_args):
+        self.beginResetModel()
+
+    def _on_source_changed(self, *_args):
+        self._apply_filter()
+        self.endResetModel()
+
+    def _on_source_data_changed(
+        self,
+        top_left: core.ModelIndex,
+        bottom_right: core.ModelIndex,
+        roles: Sequence[int] = (),
+    ):
+        first, last = top_left.row(), bottom_right.row()
+        visible = np.flatnonzero(self._filter_index[first : last + 1])
+        if not len(visible):
+            return
+        top = int(self._source_to_proxy[first + visible[0]])
+        bottom = int(self._source_to_proxy[first + visible[-1]])
+        self.dataChanged.emit(
+            self.index(top, top_left.column()),
+            self.index(bottom, bottom_right.column()),
+            list(roles),
+        )
+
+    def _on_source_header_changed(
+        self, orientation: constants.Orientation, first: int, last: int
+    ):
+        if orientation == constants.HORIZONTAL:
+            self.headerDataChanged.emit(orientation, first, last)
+        elif self._row_count:
+            self.headerDataChanged.emit(orientation, 0, self._row_count - 1)
+
+    # --- QAbstractItemModel interface ---
+
+    def rowCount(self, parent: core.ModelIndex | None = None) -> int:
+        if parent is not None and parent.isValid():
+            return 0
         return self._row_count
+
+    def columnCount(self, parent: core.ModelIndex | None = None) -> int:
+        source = self.sourceModel()
+        if source is None or (parent is not None and parent.isValid()):
+            return 0
+        return source.columnCount()
+
+    def hasChildren(self, parent: core.ModelIndex | None = None) -> bool:
+        if parent is not None and parent.isValid():
+            return False
+        return self.rowCount() > 0 and self.columnCount() > 0
+
+    def index(
+        self, row: int, column: int, parent: core.ModelIndex | None = None
+    ) -> core.ModelIndex:
+        if (parent is not None and parent.isValid()) or not (
+            0 <= row < self._row_count and 0 <= column < self.columnCount()
+        ):
+            return core.ModelIndex()
+        return self.createIndex(row, column)
+
+    def parent(self, *args):
+        if args:  # parent(index): a flat table, so there is never a parent index
+            return core.ModelIndex()
+        return super().parent()  # QObject.parent()
 
     def headerData(
         self,
@@ -60,21 +204,14 @@ class BasePandasIndexFilterProxyModel(core.IdentityProxyModel):
         role: constants.ItemDataRole = constants.DISPLAY_ROLE,
     ):
         """Map header data to proxy by using proxy-to-source-map."""
-        if orientation == constants.HORIZONTAL:
-            return super().headerData(section, orientation, role)
-        return super().headerData(self._proxy_to_source[section], orientation, role)
-
-    def index(
-        self, row: int, column: int, parent: core.ModelIndex | None = None
-    ) -> core.ModelIndex:
-        parent = parent or core.ModelIndex()
         source = self.sourceModel()
-        if row < 0 or column < 0 or source is None or row >= self._row_count:
-            return core.ModelIndex()
-        source_parent = self.mapToSource(parent)
-        row_pos = int(self._proxy_to_source[row])
-        source_index = source.index(row_pos, column, source_parent)
-        return self.mapFromSource(source_index)
+        if source is None:
+            return None
+        if orientation == constants.HORIZONTAL:
+            return source.headerData(section, orientation, role)
+        if not 0 <= section < self._row_count:
+            return None
+        return source.headerData(int(self._proxy_to_source[section]), orientation, role)
 
     def mapToSource(self, proxy_idx: core.ModelIndex) -> core.ModelIndex:
         """Map index to source by using proxy-to-source map."""
@@ -82,23 +219,26 @@ class BasePandasIndexFilterProxyModel(core.IdentityProxyModel):
         if (
             source is None
             or not proxy_idx.isValid()
-            or proxy_idx.row() >= self._row_count
+            or not 0 <= proxy_idx.row() < self._row_count
         ):
             return core.ModelIndex()
         row_pos = int(self._proxy_to_source[proxy_idx.row()])
         return source.index(row_pos, proxy_idx.column())
 
     def mapFromSource(self, source_index: core.ModelIndex) -> core.ModelIndex:
-        if self.sourceModel() is None or not source_index.isValid():
+        row = source_index.row()
+        if (
+            self.sourceModel() is None
+            or not source_index.isValid()
+            or not 0 <= row < len(self._filter_index)
+            or not self._filter_index[row]  # filtered out: no proxy index
+        ):
             return core.ModelIndex()
-        row_pos = int(self._source_to_proxy[source_index.row()])
-        return self.createIndex(
-            row_pos, source_index.column(), source_index.internalPointer()
-        )
+        return self.index(int(self._source_to_proxy[row]), source_index.column())
 
 
 class PandasStringColumnFilterProxyModel(BasePandasIndexFilterProxyModel):
-    """Basically filters a dataframe based on df.iloc[:, column].str.somemethod(term)."""
+    """Filters a DataFrame by df.iloc[:, column].str.<filter_mode>(search_term)."""
 
     ID = "pandas_str_filter"
 
@@ -111,71 +251,71 @@ class PandasStringColumnFilterProxyModel(BasePandasIndexFilterProxyModel):
         self._na_value = False
         super().__init__(**kwargs)
 
+    def compute_filter(self, df: pd.DataFrame) -> np.ndarray | None:
+        if not self._search_term:
+            return None
+        if not 0 <= self._filter_column < len(df.columns):
+            return np.zeros(len(df), dtype=bool)
+        column = _as_string_series(df.iloc[:, self._filter_column])
+        term = self._search_term
+        match self._filter_mode:
+            case "startswith" | "endswith" if not self._case_sensitive:
+                method = getattr(column.str.lower().str, self._filter_mode)
+                result = method(term.lower(), na=self._na_value)
+            case "startswith" | "endswith":
+                result = getattr(column.str, self._filter_mode)(term, na=self._na_value)
+            case "contains" | "match":
+                method = getattr(column.str, self._filter_mode)
+                result = method(
+                    term, case=self._case_sensitive, flags=self._flags, na=self._na_value
+                )
+        return _to_mask(result, len(df), self._na_value)
+
+    def _refilter(self):
+        if self.sourceModel() is not None:
+            self.invalidate_filter()
+
     def set_search_term(self, search_term: str):
         self._search_term = search_term
-        if not self._search_term:
-            self._reset_filter_index(init_value=True)
-            self._update_mapping()
-            return
-        df = self.get_source_model(skip_proxies=True).df
-        match self.filter_mode:
-            case "startswith":
-                self._filter_index = df.iloc[:, self._filter_column].str.startswith(
-                    self._search_term, na=self._na_value
-                )
-            case "endswith":
-                self._filter_index = df.iloc[:, self._filter_column].str.endswith(
-                    self._search_term, na=self._na_value
-                )
-            case "contains":
-                self._filter_index = df.iloc[:, self._filter_column].str.contains(
-                    self._search_term,
-                    case=self._case_sensitive,
-                    flags=self._flags,
-                    na=self._na_value,
-                )
-            case "match":
-                self._filter_index = df.iloc[:, self._filter_column].str.match(
-                    self._search_term,
-                    case=self._case_sensitive,
-                    flags=self._flags,
-                    na=self._na_value,
-                )
-        self._filter_index = self._filter_index.to_numpy()
-        # this is needed for new StringDtype, otherwise much slower.
-        if self._filter_index.dtype == object:
-            self._filter_index = self._filter_index.astype(bool)
-        self._update_mapping()
+        self._refilter()
 
     def get_search_term(self) -> str:
         return self._search_term
 
     def set_filter_column(self, column: int):
         self._filter_column = column
+        self._refilter()
 
     def get_filter_column(self) -> int:
         return self._filter_column
 
     def set_filter_mode(self, mode: FilterModeStr):
+        if mode not in FILTER_MODES:
+            msg = f"Invalid filter mode {mode!r}. Valid: {FILTER_MODES}"
+            raise ValueError(msg)
         self._filter_mode = mode
+        self._refilter()
 
     def get_filter_mode(self) -> FilterModeStr:
         return self._filter_mode
 
     def set_case_sensitive(self, mode: bool):
         self._case_sensitive = mode
+        self._refilter()
 
     def is_case_sensitive(self) -> bool:
         return self._case_sensitive
 
     def set_flags(self, flags: int):
         self._flags = flags
+        self._refilter()
 
     def get_flags(self) -> int:
         return self._flags
 
     def set_na_value(self, value: bool):
         self._na_value = value
+        self._refilter()
 
     def get_na_value(self) -> bool:
         return self._na_value
@@ -202,7 +342,7 @@ class PandasStringColumnFilterProxyModel(BasePandasIndexFilterProxyModel):
         bool,
         is_case_sensitive,
         set_case_sensitive,
-        doc="Case sensitivity of the filter. Does not apply to start/endswith.",
+        doc="Case sensitivity of the filter",
     )
     re_flags = core.Property(
         int,
@@ -214,31 +354,38 @@ class PandasStringColumnFilterProxyModel(BasePandasIndexFilterProxyModel):
         bool,
         get_na_value,
         set_na_value,
-        doc="NA value",
+        doc="Whether rows with missing values are shown",
     )
 
 
 class PandasEvalFilterProxyModel(BasePandasIndexFilterProxyModel):
+    """Filters a DataFrame by a boolean `DataFrame.eval` expression, like 'a > 10'.
+
+    Invalid expressions, or ones that don't evaluate to a boolean Series, show no rows.
+    """
+
     ID = "pandas_eval_filter"
 
     def __init__(self, **kwargs):
         self._expression = ""
         super().__init__(**kwargs)
 
+    def compute_filter(self, df: pd.DataFrame) -> np.ndarray | None:
+        if not self._expression:
+            return None
+        try:
+            result = df.eval(self._expression)
+        except Exception:  # user input: any syntax / name / type error
+            logger.debug("Invalid filter expression %r", self._expression)
+            return np.zeros(len(df), dtype=bool)
+        if not pd.api.types.is_bool_dtype(getattr(result, "dtype", None)):
+            return np.zeros(len(df), dtype=bool)
+        return _to_mask(result, len(df))
+
     def set_expression(self, expression: str):
         self._expression = expression
-        if not self._expression:
-            self._reset_filter_index(True)
-            self._update_mapping()
-        try:
-            self._filter_index = df.eval(self._expression)
-            self._filter_index = self._filter_index.to_numpy()
-            # df.eval doesnt neccessarily return a bool index. If not, show nothing.
-            if self._filter_index.dtype != bool:
-                self._reset_filter_index(False)
-        except Exception:
-            self._reset_filter_index(False)
-        self._update_mapping()
+        if self.sourceModel() is not None:
+            self.invalidate_filter()
 
     def get_expression(self) -> str:
         return self._expression
@@ -252,24 +399,31 @@ class PandasEvalFilterProxyModel(BasePandasIndexFilterProxyModel):
 
 
 class PandasMultiStringColumnFilterProxyModel(BasePandasIndexFilterProxyModel):
+    """Shows rows where every given column starts with its given prefix.
+
+    Filters are a mapping of column label to prefix; empty prefixes are ignored.
+    """
+
     def __init__(self, **kwargs):
         self._filters: dict[str, str] = {}
         super().__init__(**kwargs)
 
+    def compute_filter(self, df: pd.DataFrame) -> np.ndarray | None:
+        active = {k: v for k, v in self._filters.items() if v}
+        if not active:
+            return None
+        mask = np.ones(len(df), dtype=bool)
+        for column, prefix in active.items():
+            if column not in df.columns:
+                return np.zeros(len(df), dtype=bool)
+            series = _as_string_series(df[column])
+            mask &= _to_mask(series.str.startswith(prefix, na=False), len(df))
+        return mask
+
     def set_filters(self, filters: dict[str, str]):
-        self._filters = filters
-        df = self.get_source_model(skip_proxies=True).df
-        # workaround-ish way to implement "startswith" as an expression
-        filter_list = [f"('{v}' <= `{k}` <= '{v}~')" for k, v in self._filters.items()]
-        expr = " & ".join(filter_list)
-        try:
-            self._filter_index = df.eval(expr)
-            self._filter_index = self._filter_index.to_numpy()
-            if self._filter_index.dtype != bool:
-                self._filter_index = self._filter_index.astype(bool)
-        except Exception:
-            self._reset_filter_index(False)
-        self._update_mapping()
+        self._filters = dict(filters)
+        if self.sourceModel() is not None:
+            self.invalidate_filter()
 
     def get_filters(self) -> dict[str, str]:
         return self._filters
@@ -278,7 +432,7 @@ class PandasMultiStringColumnFilterProxyModel(BasePandasIndexFilterProxyModel):
         dict,
         get_filters,
         set_filters,
-        doc="Dictionary containing a Column->EvalStr mapping",
+        doc="Dictionary containing a Column->Prefix mapping",
     )
 
 

@@ -12,6 +12,16 @@ from prettyqt import constants, core
 logger = logging.getLogger(__name__)
 
 
+def _is_missing(value: Any) -> bool:
+    """Return True for scalar NA values (None, NaN, NaT, pd.NA); False for containers."""
+    return bool(pd.api.types.is_scalar(value) and pd.isna(value))
+
+
+def _to_python(value: Any) -> Any:
+    """Convert NumPy scalars to builtins so Qt can wrap them in a QVariant."""
+    return value.item() if isinstance(value, np.generic) else value
+
+
 class PandasDataFrameModel(core.AbstractTableModel):
     """Table model for pandas DataFrames."""
 
@@ -23,9 +33,10 @@ class PandasDataFrameModel(core.AbstractTableModel):
         DTypeRole = constants.USER_ROLE + 4555
         ColumnNameRole = constants.USER_ROLE + 4556
 
-    def __init__(self, df, *args, **kwargs):
+    def __init__(self, df: pd.DataFrame | pd.Series | None, *args, **kwargs):
         self._multiindex_separator = " | "
-        self.df = df
+        # A Series is shown as a one-column frame, so all positional access is 2D.
+        self.df = df.to_frame() if isinstance(df, pd.Series) else df
         super().__init__(*args, **kwargs)
 
     @classmethod
@@ -61,38 +72,43 @@ class PandasDataFrameModel(core.AbstractTableModel):
         return self._multiindex_separator
 
     def columnCount(self, parent: core.ModelIndex | None = None) -> int:
-        if self.df is None:
+        if self.df is None or (parent is not None and parent.isValid()):
             return 0
-        return 1 if type(self.df) is pd.Series else len(self.df.columns)
+        return len(self.df.columns)
 
     def rowCount(self, parent: core.ModelIndex | None = None) -> int:
-        return len(self.df.index) if self.df is not None else 0
+        if self.df is None or (parent is not None and parent.isValid()):
+            return 0
+        return len(self.df.index)
 
     def data(
         self,
         index: core.ModelIndex,
         role: constants.ItemDataRole = constants.DISPLAY_ROLE,
     ):
+        if not index.isValid() or self.df is None:
+            return None
         match role:
-            case constants.DISPLAY_ROLE | constants.EDIT_ROLE:
+            case constants.DISPLAY_ROLE:
                 cell = self.df.iat[index.row(), index.column()]
-                return "" if pd.isnull(cell) else cell
+                return "" if _is_missing(cell) else str(cell)
+            case constants.EDIT_ROLE:
+                cell = self.df.iat[index.row(), index.column()]
+                return None if _is_missing(cell) else _to_python(cell)
             case constants.TOOLTIP_ROLE:
-                row = index.row()
-                col = index.column()
-                cell = self.df.iat[row, col]
-
-                # NaN case
-                return "NaN" if pd.isnull(cell) else str(cell)
-
+                cell = self.df.iat[index.row(), index.column()]
+                return "NaN" if _is_missing(cell) else str(cell)
             case self.Roles.DTypeRole:
                 return self.df.iloc[:, index.column()].dtype
             case constants.USER_ROLE:
-                return self.df.iloc[index.row(), index.column()]
+                return self.df.iat[index.row(), index.column()]
             case self.Roles.ColumnNameRole:
-                return self.df.iloc[:, index.column()].name
+                return self.df.columns[index.column()]
+        return None
 
     def flags(self, index: core.ModelIndex) -> constants.ItemFlag:
+        if not index.isValid():
+            return constants.NO_FLAGS
         return constants.IS_EDITABLE | constants.IS_ENABLED | constants.IS_SELECTABLE
 
     #     return cur_flags if self.is_read_only else cur_flags | constants.IS_EDITABLE
@@ -117,13 +133,15 @@ class PandasDataFrameModel(core.AbstractTableModel):
                     return True
         return False
 
-    def sort(self, ncol: int, order: constants.SortOrder):
+    def sort(self, ncol: int, order: constants.SortOrder = constants.ASCENDING):
+        if self.df is None or not 0 <= ncol < len(self.df.columns):
+            return
         is_ascending = order == constants.ASCENDING
         with self.change_layout():
-            self.df = self.df.sort_values(
-                by=self.df.columns[ncol], ascending=is_ascending
-            )
-        self.update_all()
+            # sort by position: label-based sorting is ambiguous for duplicate columns
+            column = self.df.iloc[:, ncol].reset_index(drop=True)
+            column = column.sort_values(ascending=is_ascending, kind="stable")
+            self.df = self.df.iloc[column.index.to_numpy()]
 
     multiindex_separator = core.Property(
         str,
@@ -134,15 +152,19 @@ class PandasDataFrameModel(core.AbstractTableModel):
 
 
 class VerticalHeaderModel(core.AbstractTableModel):
-    def __init__(self, df: pd.DataFrame, **kwargs):
+    def __init__(self, df: pd.DataFrame | None, **kwargs):
         super().__init__(**kwargs)
         self.df = df
 
     def columnCount(self, parent: core.ModelIndex | None = None) -> int:
-        return 0 if self.df is None else self.df.index.nlevels
+        if self.df is None or (parent is not None and parent.isValid()):
+            return 0
+        return self.df.index.nlevels
 
     def rowCount(self, parent: core.ModelIndex | None = None) -> int:
-        return 0 if self.df is None else self.df.index.shape[0]
+        if self.df is None or (parent is not None and parent.isValid()):
+            return 0
+        return self.df.index.shape[0]
 
     def data(
         self,
@@ -175,15 +197,19 @@ class VerticalHeaderModel(core.AbstractTableModel):
 
 
 class HorizontalHeaderModel(core.AbstractTableModel):
-    def __init__(self, df: pd.DataFrame, **kwargs):
+    def __init__(self, df: pd.DataFrame | None, **kwargs):
         super().__init__(**kwargs)
         self.df = df
 
     def columnCount(self, parent: core.ModelIndex | None = None) -> int:
-        return 0 if self.df is None else self.df.columns.shape[0]
+        if self.df is None or (parent is not None and parent.isValid()):
+            return 0
+        return self.df.columns.shape[0]
 
     def rowCount(self, parent: core.ModelIndex | None = None) -> int:
-        return 0 if self.df is None else self.df.columns.nlevels
+        if self.df is None or (parent is not None and parent.isValid()):
+            return 0
+        return self.df.columns.nlevels
 
     def data(
         self,

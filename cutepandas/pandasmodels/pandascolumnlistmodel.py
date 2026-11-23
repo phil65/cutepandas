@@ -81,13 +81,15 @@ class PandasColumnListModel(itemmodels.ModelMixin, core.AbstractTableModel):
                 return True
 
             case self.Roles.DTypeRole:
-                name = index.data(constants.NAME_ROLE)
+                pos = index.row()
                 try:
-                    self.df = self.df.as_type(dtype=value)
-                except TypeError as e:
-                    logger.exception(e)
-                else:
-                    self.update_all()
+                    column = self.df.iloc[:, pos].astype(value)
+                except (TypeError, ValueError):
+                    logger.exception("Could not convert column %r to %r", pos, value)
+                    return False
+                self.df = self.df.copy()
+                self.df.isetitem(pos, column)
+                self.update_all()
                 return True
 
         return False
@@ -95,15 +97,16 @@ class PandasColumnListModel(itemmodels.ModelMixin, core.AbstractTableModel):
     def flags(self, index: core.ModelIndex) -> constants.ItemFlag:
         if not index.isValid():
             return constants.DROP_ENABLED
-        if index.column() in [0, 1]:
+        if index.column() in {0, 1}:
             return self.DEFAULT_FLAGS | constants.IS_EDITABLE
         return self.DEFAULT_FLAGS
 
     def removeRows(self, row, count, parent):
-        colnames = self.df.columns[row : row + count].tolist()
-        with self.remove_rows(row, row + count, parent):
-            self.df = self.df.drop(labels=colnames, axis=1, errors="ignore")
-        self.update_all()
+        if self.df is None or count <= 0 or row < 0 or row + count > self.rowCount():
+            return False
+        keep = [i for i in range(len(self.df.columns)) if not row <= i < row + count]
+        with self.remove_rows(row, row + count - 1, parent):
+            self.df = self.df.iloc[:, keep]
         return True
 
     def data(
@@ -141,28 +144,36 @@ class PandasColumnListModel(itemmodels.ModelMixin, core.AbstractTableModel):
                 return self.data_by_index(index).name
 
     def rowCount(self, parent: core.ModelIndex | None = None) -> int:
-        return len(self.df.columns) if self.df is not None else 0
+        if self.df is None or (parent is not None and parent.isValid()):
+            return 0
+        return len(self.df.columns)
 
-    def sort(self, ncol, order):
-        is_ascending = order == constants.ASCENDING
+    def columnCount(self, parent: core.ModelIndex | None = None) -> int:
+        if parent is not None and parent.isValid():
+            return 0
+        return len(self.HEADER)
+
+    def sort(self, ncol: int, order: constants.SortOrder = constants.ASCENDING):
+        if self.df is None:
+            return
+        columns = [self.df.iloc[:, i] for i in range(len(self.df.columns))]
         match ncol:
             case 0:
-                order = sorted(self.df.columns, reverse=is_ascending)
-
+                keys = [str(col.name) for col in columns]
             case 1:
-                maps = [(col, str(self.df[col].dtype)) for col in self.df.columns]
-                maps.sort(key=lambda x: x[1], reverse=is_ascending)
-                order = [c[0] for c in maps]
-
+                keys = [str(col.dtype) for col in columns]
             case 2:
-                maps = [(col, str(self.df[col].nbytes)) for col in self.df.columns]
-                maps.sort(key=lambda x: x[1], reverse=is_ascending)
-                order = [c[0] for c in maps]
+                keys = [col.nbytes for col in columns]
             case _:
                 return
-
+        positions = sorted(
+            range(len(keys)),
+            key=keys.__getitem__,
+            reverse=order == constants.DESCENDING,
+        )
         with self.change_layout():
-            self.df = self.df.reindex(labels=order, axis="columns")
+            # positional, so duplicate column labels survive the reorder
+            self.df = self.df.iloc[:, positions]
 
     def data_by_index(self, index: core.ModelIndex):
         return self.df.iloc[:, index.row()]
@@ -208,7 +219,7 @@ class PandasIndexListModel(itemmodels.ModelMixin, core.AbstractTableModel):
     ) -> bool:
         if not index.isValid():
             return False
-        assert self.df
+        assert self.df is not None
         match role:
             case constants.EDIT_ROLE if index.column() == 0:
                 level = index.row() if isinstance(self.df.index, pd.MultiIndex) else None
@@ -228,16 +239,20 @@ class PandasIndexListModel(itemmodels.ModelMixin, core.AbstractTableModel):
                     return False
         return False
 
-    def removeRows(self, row, count, parent):
-        assert self.df
-        with self.remove_rows(row, row + count, parent):
-            self.df = self.df.drop(labels=self.df.columns[row : row + count], axis=1)
+    def removeRows(self, row, count, parent=None):
+        """Remove index levels (the rows of this model) from the DataFrame."""
+        if self.df is None or count <= 0 or row < 0 or row + count > self.rowCount():
+            return False
+        with self.remove_rows(row, row + count - 1, parent):
+            # drop=True discards the level values instead of moving them into columns.
+            # Removing every level leaves a fresh RangeIndex.
+            self.df = self.df.reset_index(level=list(range(row, row + count)), drop=True)
         return True
 
     def flags(self, index: core.ModelIndex) -> constants.ItemFlag:
         if not index.isValid():
             return constants.DROP_ENABLED
-        assert self.df
+        assert self.df is not None
         is_range = self.df.index.name is None and isinstance(self.df.index, pd.RangeIndex)
         match index.column(), is_range:
             case 0, True:
@@ -259,7 +274,7 @@ class PandasIndexListModel(itemmodels.ModelMixin, core.AbstractTableModel):
     ):
         if not index.isValid():
             return None
-        assert self.df
+        assert self.df is not None
         match role, index.column():
             # case constants.DECORATION_ROLE, 0:
             #     index = self.get_index(index.row())
@@ -296,8 +311,15 @@ class PandasIndexListModel(itemmodels.ModelMixin, core.AbstractTableModel):
             case self.DTYPE_ROLE, _:
                 return self.get_index(index.row()).dtype
 
-    def rowCount(self, parent=None):
-        return self.df.index.nlevels if self.df is not None else 0
+    def rowCount(self, parent: core.ModelIndex | None = None) -> int:
+        if self.df is None or (parent is not None and parent.isValid()):
+            return 0
+        return self.df.index.nlevels
+
+    def columnCount(self, parent: core.ModelIndex | None = None) -> int:
+        if parent is not None and parent.isValid():
+            return 0
+        return len(self.HEADER)
 
     def mimeData(self, indexes):
         mime_data = core.MimeData()
@@ -308,7 +330,7 @@ class PandasIndexListModel(itemmodels.ModelMixin, core.AbstractTableModel):
     def dropMimeData(self, mime_data, action, row, column, parent_index):
         if parent_index.isValid():
             return False
-        assert self.df
+        assert self.df is not None
         if mime_data.hasFormat(self.MIME_TYPE):
             data = mime_data.get_json_data(self.MIME_TYPE)
             names = list(self.df.index.names)
@@ -328,18 +350,18 @@ class PandasIndexListModel(itemmodels.ModelMixin, core.AbstractTableModel):
         return [self.MIME_TYPE]
 
     def get_index(self, row=None):
-        assert self.df
+        assert self.df is not None
         idx = self.df.index
         # using get_level_values() is too slow for large datasets with multiindex
         return idx.levels[row] if isinstance(idx, pd.MultiIndex) else idx
 
     def to_datetime(self, level=None, fmt: str | None = None):
-        assert self.df
+        assert self.df is not None
         with self.change_layout():
             self.df.index = self.df.index.pt.to_datetime(level=level, fmt=fmt)
 
     def filter_range(self, start: int, end: int):
-        assert self.df
+        assert self.df is not None
         with self.change_layout():
             self.df = self.df.iloc[start:end]
         return True

@@ -19,8 +19,9 @@ Flat package layout (no `src/`): the package lives in `cutepandas/`.
   - `pandascategorylistmodel.py`: `PandasCategoryListModel` (categories of a category column).
   - `pandasindexfilterproxymodel.py`: `BasePandasIndexFilterProxyModel` and subclasses
     (`PandasStringColumnFilterProxyModel`, `PandasEvalFilterProxyModel`,
-    `PandasMultiStringColumnFilterProxyModel`). These are `IdentityProxyModel`s that filter
-    via a NumPy boolean index plus row mapping instead of `QSortFilterProxyModel`.
+    `PandasMultiStringColumnFilterProxyModel`). These are `AbstractProxyModel`s that filter
+    via a NumPy boolean mask (`compute_filter`) plus row mapping instead of
+    `QSortFilterProxyModel`; any structural change of the source recomputes the mask.
   - `polarsdataframemodel.py`: `PolarsDataFrameModel`; needs the `polars` extra, not
     imported by the package `__init__`.
 - `cutepandas/pandaswidgets/`: widgets (exported in `__init__.py`).

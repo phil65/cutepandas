@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from prettyqt import constants, core, itemmodels, widgets
+from prettyqt import core, itemmodels, widgets
 
 from cutepandas import pandasmodels, pandaswidgets
 
@@ -21,44 +21,39 @@ class DataFrameWidget(widgets.MainWindow):
 
         self.index_table = widgets.TableView(selection_behavior="rows")
         self.column_table = widgets.TableView(selection_behavior="rows")
-        model = pandasmodels.PandasIndexListModel(df)
-        self.index_table.set_model(model)
-        model = pandasmodels.PandasColumnListModel(df)
-        self.column_table.set_model(model)
-        self.column_table.selectionModel().currentChanged.connect(self._on_current_change)
-
         self.data_table = pandaswidgets.DataFrameViewer(df)
         self.setCentralWidget(self.data_table)
-
         self.category_table = widgets.TableView(selection_behavior="rows")
-
         self.attrs_table = widgets.TreeView(
             selection_behavior="rows", root_is_decorated=False
         )
-        if df is not None:
-            self.attrs_table.set_model(itemmodels.JsonModel(df.attrs, show_root=False))
-
         self.add_dockwidget(self.index_table, window_title="Index list")
         self.add_dockwidget(self.column_table, window_title="Column list")
         self.add_dockwidget(self.category_table, window_title="Category list")
         self.add_dockwidget(self.attrs_table, window_title="MetaData")
+        self._set_list_models(df)
 
-    def set_df(self, df: pd.DataFrame):
-        if df is not None:
-            self.attrs_table.set_model(itemmodels.JsonModel(df.attrs, show_root=False))
+    def set_df(self, df: pd.DataFrame | None):
         self.data_table.set_df(df)
-        model = pandasmodels.PandasIndexListModel(df)
-        self.index_table.set_model(model)
-        model = pandasmodels.PandasColumnListModel(df)
-        self.column_table.set_model(model)
+        self._set_list_models(df)
+
+    def _set_list_models(self, df: pd.DataFrame | None):
+        attrs = df.attrs if df is not None else {}
+        self.attrs_table.set_model(itemmodels.JsonModel(attrs, show_root=False))
+        self.index_table.set_model(pandasmodels.PandasIndexListModel(df))
+        self.column_table.set_model(pandasmodels.PandasColumnListModel(df))
+        # A new model comes with a new selection model: connect it again.
+        self.column_table.selectionModel().currentChanged.connect(self._on_current_change)
         self.category_table.set_model(None)
 
-    def _on_current_change(self, new, old):
-        role = new.model().Roles.ColumnNameRole
-        column_name = new.data(role)
-        df = new.data(constants.USER_ROLE)
-        model = pandasmodels.PandasCategoryListModel(df, column_name)
-        self.category_table.set_model(model)
+    def _on_current_change(self, new: core.ModelIndex, old: core.ModelIndex):
+        model = self.column_table.get_model(skip_proxies=True)
+        if not new.isValid() or model.df is None:
+            self.category_table.set_model(None)
+            return
+        column_name = model.df.columns[new.row()]
+        category_model = pandasmodels.PandasCategoryListModel(model.df, column_name)
+        self.category_table.set_model(category_model)
 
 
 if __name__ == "__main__":

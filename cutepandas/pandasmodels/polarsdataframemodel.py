@@ -45,25 +45,38 @@ class PolarsDataFrameModel(core.AbstractTableModel):
             case _, _:
                 return None
 
-    def columnCount(self, parent: core.ModelIndex | None = None):
-        if self.df is None:
+    def columnCount(self, parent: core.ModelIndex | None = None) -> int:
+        if self.df is None or (parent is not None and parent.isValid()):
             return 0
         return len(self.df.columns)
 
-    def rowCount(self, parent: core.ModelIndex | None = None):
-        return len(self.df) if self.df is not None else 0
+    def rowCount(self, parent: core.ModelIndex | None = None) -> int:
+        if self.df is None or (parent is not None and parent.isValid()):
+            return 0
+        return len(self.df)
 
     def data(
         self,
         index: core.ModelIndex,
         role: constants.ItemDataRole = constants.DISPLAY_ROLE,
     ):
+        if not index.isValid() or self.df is None:
+            return None
         match role:
-            case constants.DISPLAY_ROLE | constants.EDIT_ROLE:
+            case constants.DISPLAY_ROLE:
                 cell = self.df[index.row(), index.column()]
-                return str(cell)
+                return "" if cell is None else str(cell)
+            case constants.EDIT_ROLE | constants.USER_ROLE:
+                return self.df[index.row(), index.column()]
+            case self.Roles.DTypeRole:
+                return self.df.dtypes[index.column()]
+            case self.Roles.ColumnNameRole:
+                return self.df.columns[index.column()]
+        return None
 
     def flags(self, index: core.ModelIndex) -> constants.ItemFlag:
+        if not index.isValid():
+            return constants.NO_FLAGS
         return constants.IS_EDITABLE | constants.IS_ENABLED | constants.IS_SELECTABLE
 
     def setData(
@@ -74,25 +87,27 @@ class PolarsDataFrameModel(core.AbstractTableModel):
     ) -> bool:
         match role:
             case constants.USER_ROLE | constants.EDIT_ROLE:
-                row = index.row()
-                col = index.column()
+                name = self.df.columns[index.column()]
                 try:
-                    self.df.iat[row, col] = value
-                except Exception as e:
-                    logger.exception(e)
+                    self.df[index.row(), name] = value
+                except Exception:
+                    logger.exception("Could not set %r at %s", value, index.row())
                     return False
                 else:
                     self.dataChanged.emit(index, index)
                     return True
         return False
 
-    def sort(self, ncol: int, order: constants.SortOrder):
-        is_ascending = order == constants.ASCENDING
+    def sort(self, ncol: int, order: constants.SortOrder = constants.ASCENDING):
+        if self.df is None or not 0 <= ncol < len(self.df.columns):
+            return
         with self.change_layout():
-            self.df = self.df.sort_values(
-                by=self.df.columns[ncol], ascending=is_ascending
+            self.df = self.df.sort(
+                self.df.columns[ncol],
+                descending=order == constants.DESCENDING,
+                nulls_last=True,
+                maintain_order=True,
             )
-        self.update_all()
 
 
 if __name__ == "__main__":

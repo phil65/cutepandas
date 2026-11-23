@@ -4,8 +4,6 @@ import numpy as np
 import pandas as pd
 from prettyqt import constants, core, itemmodels, widgets
 
-from cutepandas import pandasmodels
-
 
 class RowsColumn(itemmodels.ColumnItem):
     name = "Rows"
@@ -61,13 +59,6 @@ class DataFrameListWidget(widgets.TableView):
 
     def add_df(self, df: pd.DataFrame):
         self.model().add(df)
-
-    def _on_current_change(self, new, old):
-        role = new.model().Roles.ColumnNameRole
-        column_name = new.data(role)
-        df = new.data(constants.USER_ROLE)
-        model = pandasmodels.PandasCategoryListModel(df, column_name)
-        self.category_table.set_model(model)
 
 
 if __name__ == "__main__":

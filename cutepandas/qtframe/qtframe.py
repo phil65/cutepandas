@@ -126,12 +126,12 @@ TO_DECORATE = [
 
 def wrapper(method):
     @wraps(method)
-    def wrapped(*args, **kwargs):
-        old_shape = args[0].shape
-        # print(old_shape)
-        result = method(*args, **kwargs)
-        # print(result.shape)
-        if str(result.shape) != str(old_shape):
+    def wrapped(self, *args, **kwargs):
+        old_shape = self.shape
+        result = method(self, *args, **kwargs)
+        # Reductions return a Series / scalar and in-place calls return None:
+        # only frames carry the signals.
+        if isinstance(result, QtFrame) and result.shape != old_shape:
             result.signals.changed.emit((old_shape, result.shape))
         return result
 

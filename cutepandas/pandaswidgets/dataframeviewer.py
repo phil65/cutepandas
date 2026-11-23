@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 import logging
-import threading
 
 import numpy as np
 import pandas as pd
 from prettyqt import constants, core, custom_widgets, gui, widgets
 
 from cutepandas import pandasmodels
+from cutepandas.utils import helpers
 
 
 logger = logging.getLogger(__name__)
 
 SelectionFlag = core.ItemSelectionModel.SelectionFlag
+QWIDGETSIZE_MAX = (1 << 24) - 1
 
 
 class DataTableView(widgets.TableView):
@@ -35,21 +36,39 @@ class DataTableView(widgets.TableView):
         self.set_model(model)
 
     def copy(self):
+        """Copy the bounding box of the selected cells as tab-separated text."""
         indexes = self.selectionModel().selection().indexes()
-
+        df = self.get_model(skip_proxies=True).df
+        if not indexes or df is None:
+            return
         rows = [ix.row() for ix in indexes]
         cols = [ix.column() for ix in indexes]
-
-        df = self.get_model(skip_proxies=True).df
-        df = df.iloc[min(rows) : max(rows) + 1, min(cols) : max(cols) + 1]
-        kwargs = dict(index=False, header=False)
-        threading.Thread(target=df.to_clipboard, kwargs=kwargs).start()
+        block = df.iloc[min(rows) : max(rows) + 1, min(cols) : max(cols) + 1]
+        text = block.to_csv(sep="\t", index=False, header=False, lineterminator="\n")
+        gui.GuiApplication.clipboard().setText(text.removesuffix("\n"))
 
     def paste(self):
-        app = widgets.app()
-        clipboard = app.clipboard()
-        # TODO
-        print(clipboard.text())
+        """Paste tab-separated clipboard text, starting at the current cell."""
+        text = gui.GuiApplication.clipboard().text()
+        model = self.model()
+        if not text or model is None:
+            return
+        current = self.currentIndex()
+        top, left = (current.row(), current.column()) if current.isValid() else (0, 0)
+        for i, line in enumerate(text.splitlines()):
+            for j, cell in enumerate(line.split("\t")):
+                index = model.index(top + i, left + j)
+                if index.isValid():  # clip to the frame
+                    model.setData(index, helpers.infer_type(cell), constants.EDIT_ROLE)
+
+    def keyPressEvent(self, event: gui.QKeyEvent):
+        # Handled here: the base class would otherwise copy only the current cell.
+        if event.matches(gui.KeySequence.StandardKey.Copy):
+            self.copy()
+        elif event.matches(gui.KeySequence.StandardKey.Paste):
+            self.paste()
+        else:
+            super().keyPressEvent(event)
 
     def sizeHint(self):
         if self.get_model(skip_proxies=True).df is None:
@@ -75,6 +94,7 @@ class DataFrameViewer(widgets.Widget):
         super().__init__(**kwargs)
         # Indicates whether the widget has been shown yet. Set to True in
         self._loaded = False
+        self._sort_state: tuple[int, bool] | None = None
         self.df = df
         # Set up DataFrame TableView and Model
         self.table_data = DataTableView(df, parent=self)
@@ -132,8 +152,9 @@ class DataFrameViewer(widgets.Widget):
         if df is not None:
             self.set_df(df)
 
-    def set_df(self, df: pd.DataFrame):
+    def set_df(self, df: pd.DataFrame | None):
         self.df = df
+        self._sort_state = None
         model = pandasmodels.PandasDataFrameModel(df, parent=self.table_data)
         self.table_data.set_model(model)
 
@@ -143,11 +164,19 @@ class DataFrameViewer(widgets.Widget):
         # TODO: this gets called twice.
         self.table_columns.set_df(df)
         self.table_index.set_df(df)
-        # Toggle level names
-        if not (any(df.columns.names) or df.columns.name):
-            self.table_columns.v_header.setFixedWidth(0)
-        if not (any(df.index.names) or df.index.name):
-            self.table_index.h_header.setFixedHeight(0)
+        # Only show the level-name headers if there are level names
+        v_header = self.table_columns.v_header
+        h_header = self.table_index.h_header
+        if df is not None and any(name is not None for name in df.columns.names):
+            v_header.setMinimumWidth(0)
+            v_header.setMaximumWidth(QWIDGETSIZE_MAX)
+        else:
+            v_header.setFixedWidth(0)
+        if df is not None and any(name is not None for name in df.index.names):
+            h_header.setMinimumHeight(0)
+            h_header.setMaximumHeight(QWIDGETSIZE_MAX)
+        else:
+            h_header.setFixedHeight(0)
         self.table_columns.selectionModel().selectionChanged.connect(
             self.on_column_selection_changed
         )
@@ -198,9 +227,15 @@ class DataFrameViewer(widgets.Widget):
     #     self.table_index._on_selection_changed(selected, deselected)
 
     def on_clicked(self, ix: core.QModelIndex):
-        assert self.df
-        self.df = self.df.sort_values(self.df.columns[ix.column()])
-        self.data_changed()
+        """Sort by the clicked column; clicking the same column again reverses."""
+        if self.df is None or not ix.isValid():
+            return
+        col = ix.column()
+        ascending = self._sort_state != (col, True)
+        column = self.df.iloc[:, col].reset_index(drop=True)
+        order = column.sort_values(ascending=ascending, kind="stable").index
+        self.set_df(self.df.iloc[order.to_numpy()])
+        self._sort_state = (col, ascending)  # set_df resets it
 
     def showEvent(self, event: gui.QShowEvent):
         """Initialize column and row sizes on the first time the widget is shown."""
@@ -347,14 +382,6 @@ class DataFrameViewer(widgets.Widget):
         self.table_data.updateGeometry()
         self.table_index.updateGeometry()
 
-    def keyPressEvent(self, event: gui.QKeyEvent):
-        super().keyPressEvent(event)
-
-        if event.matches(gui.KeySequence.StandardKey.Copy):
-            self.table_data.copy()
-        elif event.matches(gui.KeySequence.StandardKey.Paste):
-            self.table_data.paste()
-
     def data_changed(self):
         # Call dataChanged on all models for all data
         for model in [
@@ -408,14 +435,15 @@ class HeaderView(custom_widgets.OrientedTableView):
             self.set_df(df)
             self.resize(self.sizeHint())
 
-    def set_df(self, df: pd.DataFrame, set_spans: bool = True):
+    def set_df(self, df: pd.DataFrame | None, set_spans: bool = True):
         if self.is_horizontal():
             model = pandasmodels.HorizontalHeaderModel(df)
         else:
             model = pandasmodels.VerticalHeaderModel(df)
         self.set_model(model)
+        self.clearSpans()  # spans of a previous frame
         # Link selection to DataTable
-        if set_spans:
+        if set_spans and df is not None:
             self.set_spans()
         self.init_size()
         # Set initial size
@@ -442,15 +470,19 @@ class HeaderView(custom_widgets.OrientedTableView):
     # Take the current set of selected cells and make it so that any spanning cell above
     # a selected cell is selected too This should happen after every selection change
     def selectionChanged(self, selected, deselected):
+        super().selectionChanged(selected, deselected)  # repaints the selection
+        df = self.get_model(skip_proxies=True).df
+        if df is None:
+            return
         if self.is_horizontal():
-            if self.get_model(skip_proxies=True).df.columns.nlevels == 1:
+            if df.columns.nlevels == 1:
                 return
             for ix in self.selectedIndexes():
                 for row in range(ix.row()):
                     ix2 = self.model().index(row, ix.column())
                     self.setSelection(self.visualRect(ix2), SelectionFlag.Select)
         else:
-            if self.get_model(skip_proxies=True).df.index.nlevels == 1:
+            if df.index.nlevels == 1:
                 return
             for ix in self.selectedIndexes():
                 for col in range(ix.column()):
@@ -479,6 +511,8 @@ class HeaderView(custom_widgets.OrientedTableView):
     def set_spans(self):
         df = self.get_model(skip_proxies=True).df
         index = df.columns if self.is_horizontal() else df.index
+        if len(index) == 0:
+            return
         is_multiindex = isinstance(index, pd.MultiIndex)
         n = len(index[0]) if is_multiindex else 1
         for level in range(n):

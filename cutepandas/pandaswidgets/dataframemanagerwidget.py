@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from prettyqt import constants, widgets
+from prettyqt import widgets
 
 from cutepandas import pandaswidgets
 
@@ -25,7 +25,10 @@ class DataFrameManagerWidget(widgets.Splitter):
         self.dataframe_list.add_df(df)
 
     def _on_current_change(self, new, old):
-        df = new.data(constants.USER_ROLE)
+        if not new.isValid():
+            return
+        # The list model stores the frames; its columns only provide display data.
+        df = self.dataframe_list.model().items[new.row()]
         self.dataframe_editor.set_df(df)
 
 

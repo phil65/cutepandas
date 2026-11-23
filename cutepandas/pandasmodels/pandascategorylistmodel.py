@@ -64,13 +64,14 @@ class PandasCategoryListModel(itemmodels.ModelMixin, core.AbstractTableModel):
         # if role == constants.DECORATION_ROLE:
         #     if index.column() == 0:
         #         return iconprovider.get_icon(iconnames.CATEGORY, as_qicon=True)
+        assert self.df is not None
         cat_name = self.series.cat.categories[index.row()]
-        assert self.df
         match role, index.column():
             case constants.DISPLAY_ROLE | constants.EDIT_ROLE, 0:
                 return helpers.format_name(cat_name)
             case constants.DISPLAY_ROLE | constants.EDIT_ROLE, 1:
-                return str(self.series.cat.codes[index.row()])
+                # A category's code is its position in the categories.
+                return str(index.row())
             case constants.NAME_ROLE, _:
                 if isinstance(cat_name, np.number):
                     return cat_name.item()
@@ -79,13 +80,22 @@ class PandasCategoryListModel(itemmodels.ModelMixin, core.AbstractTableModel):
                 num_items = len(self.df[self.series == cat_name])
                 return f"<b>{cat_name}</b><br>Items: {num_items}"
             case constants.USER_ROLE, _:
-                self.df = self.df[self.series == cat_name]
-                return self.df
+                return self.df[self.series == cat_name]
+        return None
 
     def rowCount(self, parent: core.ModelIndex | None = None) -> int:
-        if not self.col or not hasattr(self.series, "cat"):
+        if parent is not None and parent.isValid():
+            return 0
+        if self.df is None or self.col not in self.df.columns:
+            return 0
+        if not isinstance(self.series.dtype, pd.CategoricalDtype):
             return 0
         return len(self.series.cat.categories)
+
+    def columnCount(self, parent: core.ModelIndex | None = None) -> int:
+        if parent is not None and parent.isValid():
+            return 0
+        return len(self.HEADER)
 
     def mimeData(self, indexes):
         mime_data = core.MimeData()
@@ -110,16 +120,18 @@ class PandasCategoryListModel(itemmodels.ModelMixin, core.AbstractTableModel):
     def sort(self, ncol, order):
         if ncol != 0:
             return None
-        is_ascending = order == constants.ASCENDING
-        order = sorted(self.series.cat.categories, reverse=is_ascending)
-        self.reorder_categories(order)
+        is_descending = order == constants.DESCENDING
+        new_order = sorted(self.series.cat.categories, reverse=is_descending)
+        self.reorder_categories(new_order)
 
     def reorder_categories(self, order):
         with self.change_layout():
             self.series = self.series.cat.reorder_categories(new_categories=order)
 
     def add_category(self, new_categories):
-        with self.append_rows(1):
+        if not pd.api.types.is_list_like(new_categories):
+            new_categories = [new_categories]
+        with self.append_rows(len(new_categories)):
             self.series = self.series.cat.add_categories(new_categories=new_categories)
 
     def toggle_ordered(self):
