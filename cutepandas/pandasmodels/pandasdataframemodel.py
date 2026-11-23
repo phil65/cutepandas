@@ -8,6 +8,8 @@ import numpy as np
 import pandas as pd
 from prettyqt import constants, core
 
+from cutepandas.pandasmodels.dataframeholder import DataFrameHolder, DataFrameHolderMixin
+
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +24,7 @@ def _to_python(value: Any) -> Any:
     return value.item() if isinstance(value, np.generic) else value
 
 
-class PandasDataFrameModel(core.AbstractTableModel):
+class PandasDataFrameModel(DataFrameHolderMixin, core.AbstractTableModel):
     """Table model for pandas DataFrames."""
 
     SUPPORTS = pd.DataFrame
@@ -33,11 +35,19 @@ class PandasDataFrameModel(core.AbstractTableModel):
         DTypeRole = constants.USER_ROLE + 4555
         ColumnNameRole = constants.USER_ROLE + 4556
 
-    def __init__(self, df: pd.DataFrame | pd.Series | None, *args, **kwargs):
+    def __init__(
+        self,
+        df: pd.DataFrame | pd.Series | DataFrameHolder | None,
+        *args,
+        **kwargs,
+    ):
+        """Pass a DataFrameHolder to share the frame with other models.
+
+        A Series is shown as a one-column frame.
+        """
         self._multiindex_separator = " | "
-        # A Series is shown as a one-column frame, so all positional access is 2D.
-        self.df = df.to_frame() if isinstance(df, pd.Series) else df
         super().__init__(*args, **kwargs)
+        self._init_holder(df)
 
     @classmethod
     def supports(cls, instance) -> bool:
@@ -49,11 +59,12 @@ class PandasDataFrameModel(core.AbstractTableModel):
         orientation: constants.Orientation,
         role: constants.ItemDataRole = constants.DISPLAY_ROLE,
     ):
+        df = self.df
         match role, orientation:
             case constants.ALIGNMENT_ROLE, constants.HORIZONTAL:
                 return constants.ALIGN_CENTER | constants.ALIGN_BOTTOM
-            case constants.DISPLAY_ROLE, constants.HORIZONTAL:
-                header = self.df.columns[section]
+            case constants.DISPLAY_ROLE, constants.HORIZONTAL if df is not None:
+                header = df.columns[section]
                 if isinstance(header, tuple | list):
                     return self._multiindex_separator.join(str(i) for i in header)
                 return str(header)
@@ -119,14 +130,16 @@ class PandasDataFrameModel(core.AbstractTableModel):
         value: Any,
         role: constants.ItemDataRole = constants.EDIT_ROLE,
     ) -> bool:
+        df = self.df
+        if df is None or not index.isValid():
+            return False
         match role:
             case constants.USER_ROLE | constants.EDIT_ROLE:
-                row = index.row()
-                col = index.column()
+                # In place: every model sharing the holder sees the same object.
                 try:
-                    self.df.iat[row, col] = value
-                except Exception as e:
-                    logger.exception(e)
+                    df.iat[index.row(), index.column()] = value
+                except Exception:
+                    logger.exception("Could not set %r at %s", value, index)
                     return False
                 else:
                     self.dataChanged.emit(index, index)
@@ -151,10 +164,10 @@ class PandasDataFrameModel(core.AbstractTableModel):
     )
 
 
-class VerticalHeaderModel(core.AbstractTableModel):
-    def __init__(self, df: pd.DataFrame | None, **kwargs):
+class VerticalHeaderModel(DataFrameHolderMixin, core.AbstractTableModel):
+    def __init__(self, df: pd.DataFrame | DataFrameHolder | None, **kwargs):
         super().__init__(**kwargs)
-        self.df = df
+        self._init_holder(df)
 
     def columnCount(self, parent: core.ModelIndex | None = None) -> int:
         if self.df is None or (parent is not None and parent.isValid()):
@@ -171,14 +184,15 @@ class VerticalHeaderModel(core.AbstractTableModel):
         index: core.ModelIndex,
         role: constants.ItemDataRole = constants.DISPLAY_ROLE,
     ):
+        df = self.df
+        if df is None or not index.isValid():
+            return None
         match role:
             case constants.DISPLAY_ROLE | constants.TOOLTIP_ROLE:
-                row = index.row()
-                col = index.column()
-                if isinstance(self.df.index, pd.MultiIndex):
-                    return str(self.df.index.values[row][col])
-                else:
-                    return str(self.df.index.values[row])
+                value = df.index[index.row()]
+                if isinstance(df.index, pd.MultiIndex):
+                    value = value[index.column()]
+                return str(value)
         return None
 
     def headerData(
@@ -187,19 +201,19 @@ class VerticalHeaderModel(core.AbstractTableModel):
         orientation: constants.Orientation,
         role: constants.ItemDataRole = constants.DISPLAY_ROLE,
     ) -> str | None:
+        df = self.df
         match role, orientation:
             case constants.DISPLAY_ROLE | constants.TOOLTIP_ROLE, constants.HORIZONTAL:
-                if isinstance(self.df.index, pd.MultiIndex):
-                    return str(self.df.index.names[section])
-                else:
-                    return str(self.df.index.name)
+                if df is None or not 0 <= section < df.index.nlevels:
+                    return None
+                return str(df.index.names[section])
         return None
 
 
-class HorizontalHeaderModel(core.AbstractTableModel):
-    def __init__(self, df: pd.DataFrame | None, **kwargs):
+class HorizontalHeaderModel(DataFrameHolderMixin, core.AbstractTableModel):
+    def __init__(self, df: pd.DataFrame | DataFrameHolder | None, **kwargs):
         super().__init__(**kwargs)
-        self.df = df
+        self._init_holder(df)
 
     def columnCount(self, parent: core.ModelIndex | None = None) -> int:
         if self.df is None or (parent is not None and parent.isValid()):
@@ -216,16 +230,18 @@ class HorizontalHeaderModel(core.AbstractTableModel):
         index: core.ModelIndex,
         role: constants.ItemDataRole = constants.DISPLAY_ROLE,
     ):
+        df = self.df
+        if df is None or not index.isValid():
+            return None
         match role:
             case constants.DISPLAY_ROLE | constants.TOOLTIP_ROLE:
-                row = index.row()
-                col = index.column()
-                if isinstance(self.df.columns, pd.MultiIndex):
-                    return str(self.df.columns.values[col][row])
-                else:
-                    return str(self.df.columns.values[col])
+                value = df.columns[index.column()]
+                if isinstance(df.columns, pd.MultiIndex):
+                    value = value[index.row()]
+                return str(value)
             case constants.ALIGNMENT_ROLE:
                 return constants.ALIGN_CENTER
+        return None
 
     def headerData(
         self,
@@ -233,12 +249,13 @@ class HorizontalHeaderModel(core.AbstractTableModel):
         orientation: constants.Orientation,
         role: constants.ItemDataRole = constants.DISPLAY_ROLE,
     ):
+        df = self.df
         match role, orientation:
             case constants.DISPLAY_ROLE | constants.TOOLTIP_ROLE, constants.VERTICAL:
-                if isinstance(self.df.columns, pd.MultiIndex):
-                    return str(self.df.columns.names[section])
-                else:
-                    return str(self.df.columns.name)
+                if df is None or not 0 <= section < df.columns.nlevels:
+                    return None
+                return str(df.columns.names[section])
+        return None
 
 
 if __name__ == "__main__":

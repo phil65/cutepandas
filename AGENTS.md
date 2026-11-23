@@ -17,6 +17,8 @@ Flat package layout (no `src/`): the package lives in `cutepandas/`.
   - `pandascolumnlistmodel.py`: `PandasColumnListModel`, `PandasIndexListModel` (list
     columns / index levels of a DataFrame, with dtype info and icons).
   - `pandascategorylistmodel.py`: `PandasCategoryListModel` (categories of a category column).
+  - `dataframeholder.py`: `DataFrameHolder` (shared, observable frame) and the
+    `DataFrameHolderMixin` the pandas models use for `self.df`.
   - `pandasindexfilterproxymodel.py`: `BasePandasIndexFilterProxyModel` and subclasses
     (`PandasStringColumnFilterProxyModel`, `PandasEvalFilterProxyModel`,
     `PandasMultiStringColumnFilterProxyModel`). These are `AbstractProxyModel`s that filter
@@ -40,6 +42,14 @@ Flat package layout (no `src/`): the package lives in `cutepandas/`.
 
 Models keep the DataFrame on `self.df`; views find it through
 `view.get_model(skip_proxies=True).df`.
+
+`self.df` lives in a `DataFrameHolder` (`pandasmodels/dataframeholder.py`). Pass one
+holder to several models / `DataFrameViewer` to share a frame: assigning `model.df` (or
+`holder.df`) emits `about_to_change` / `changed`, and every other model of that holder
+resets itself. `DataFrameWidget` uses one holder for all its panels. So a model must
+**replace** the frame (`self.df = df.rename(...)`), building the new frame completely
+before assigning it; changing it in place (`df.index = ...`, `df[col] = ...`) notifies
+nobody. Cell edits via `iat` are the one in-place exception (all models share the object).
 
 ## Where to look
 

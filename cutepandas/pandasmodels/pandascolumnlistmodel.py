@@ -9,11 +9,15 @@ import pandas as pd
 from prettyqt import constants, core, itemmodels
 from prettyqt.utils import helpers
 
+from cutepandas.pandasmodels.dataframeholder import DataFrameHolder, DataFrameHolderMixin
+
 
 logger = logging.getLogger(__name__)
 
 
-class PandasColumnListModel(itemmodels.ModelMixin, core.AbstractTableModel):
+class PandasColumnListModel(
+    DataFrameHolderMixin, itemmodels.ModelMixin, core.AbstractTableModel
+):
     HEADER = ["Name", "Type", "Size"]
     MIME_TYPE = "mime_columns"
     content_type = "features"
@@ -24,9 +28,9 @@ class PandasColumnListModel(itemmodels.ModelMixin, core.AbstractTableModel):
         DTypeRole = constants.USER_ROLE + 4555
         ColumnNameRole = constants.USER_ROLE + 4556
 
-    def __init__(self, df: pd.DataFrame | None = None, **kwargs):
+    def __init__(self, df: pd.DataFrame | DataFrameHolder | None = None, **kwargs):
         super().__init__(**kwargs)
-        self.df = df
+        self._init_holder(df)
 
     def mimeData(self, indexes):
         mime_data = core.MimeData()
@@ -35,25 +39,24 @@ class PandasColumnListModel(itemmodels.ModelMixin, core.AbstractTableModel):
         return mime_data
 
     def dropMimeData(self, mime_data, action, row, column, parent_index):
-        if parent_index.isValid():
+        df = self.df
+        if parent_index.isValid() or df is None:
             # Since we only drop in between items, parent_index must be invalid
             return False
         if mime_data.hasFormat(self.MIME_TYPE):
             data = mime_data.get_json_data(self.MIME_TYPE)
-            cols = self.df.columns.tolist()
-            cols = helpers.move_in_list(cols, data, row)
+            positions = helpers.move_in_list(list(range(len(df.columns))), data, row)
             with self.change_layout():
-                self.df = self.df[cols]
+                self.df = df.iloc[:, positions]
             self.update_all()
             return False
 
-        elif mime_data.hasFormat("mime_indexes"):
+        if mime_data.hasFormat("mime_indexes"):
             data = mime_data.get_json_data("mime_indexes")
-            names = list(self.df.index.names)
             with self.reset_model():
-                self.df = self.df.reset_index(level=[names[i] for i in data])
+                self.df = df.reset_index(level=data)
             self.update_all()
-            return False
+        return False
 
     def mimeTypes(self):
         return [self.MIME_TYPE]
@@ -64,35 +67,38 @@ class PandasColumnListModel(itemmodels.ModelMixin, core.AbstractTableModel):
         value: Any,
         role: constants.ItemDataRole = constants.EDIT_ROLE,
     ) -> bool:
-        if not index.isValid():
+        if not index.isValid() or self.df is None:
             return False
-        match role:
-            case constants.EDIT_ROLE:
-                colname = index.data(constants.NAME_ROLE)
-                if value not in self.df.columns:
-                    self.df = self.df.rename(mapper={colname: value}, axis="columns")
-                    self.update_all()
-                    return True
-
-            case constants.USER_ROLE:
-                name = self.data_by_index(index).name
-                self.df = self.df.assign(**{name: value})
-                self.update_all()
-                return True
-
-            case self.Roles.DTypeRole:
-                pos = index.row()
-                try:
-                    column = self.df.iloc[:, pos].astype(value)
-                except (TypeError, ValueError):
-                    logger.exception("Could not convert column %r to %r", pos, value)
-                    return False
-                self.df = self.df.copy()
-                self.df.isetitem(pos, column)
-                self.update_all()
-                return True
-
+        match role, index.column():
+            case constants.EDIT_ROLE, 0:
+                return self._rename_column(index.row(), value)
+            case constants.EDIT_ROLE, 1:
+                return self._set_dtype(index.row(), value)
+            case constants.USER_ROLE, _:
+                return self._replace_column(index.row(), value)
+            case self.Roles.DTypeRole, _:
+                return self._set_dtype(index.row(), value)
         return False
+
+    def _replace_column(self, pos: int, values: Any) -> bool:
+        df = self.df
+        assert df is not None
+        # Build the new frame first: assigning self.df notifies the other models.
+        new = df.copy(deep=False)
+        new.isetitem(pos, values)
+        self.df = new
+        self.update_all()
+        return True
+
+    def _set_dtype(self, pos: int, dtype: Any) -> bool:
+        df = self.df
+        assert df is not None
+        try:
+            column = df.iloc[:, pos].astype(dtype)
+        except (TypeError, ValueError):
+            logger.exception("Could not convert column %r to %r", pos, dtype)
+            return False
+        return self._replace_column(pos, column)
 
     def flags(self, index: core.ModelIndex) -> constants.ItemFlag:
         if not index.isValid():
@@ -107,6 +113,17 @@ class PandasColumnListModel(itemmodels.ModelMixin, core.AbstractTableModel):
         keep = [i for i in range(len(self.df.columns)) if not row <= i < row + count]
         with self.remove_rows(row, row + count - 1, parent):
             self.df = self.df.iloc[:, keep]
+        return True
+
+    def _rename_column(self, pos: int, name: Any) -> bool:
+        df = self.df
+        assert df is not None
+        if isinstance(df.columns, pd.MultiIndex) or name in df.columns:
+            return False  # a label can't replace a tuple; names stay unique
+        labels = list(df.columns)
+        labels[pos] = name
+        self.df = df.set_axis(labels, axis="columns")
+        self.update_all()
         return True
 
     def data(
@@ -176,11 +193,18 @@ class PandasColumnListModel(itemmodels.ModelMixin, core.AbstractTableModel):
             self.df = self.df.iloc[:, positions]
 
     def data_by_index(self, index: core.ModelIndex):
-        return self.df.iloc[:, index.row()]
+        df = self.df
+        assert df is not None
+        return df.iloc[:, index.row()]
 
-    def add_feature(self, series):
+    def add_feature(self, series: pd.Series):
+        """Append a Series as a new column (named after the Series)."""
+        df = self.df
+        assert df is not None
+        new = df.copy(deep=False)
         with self.append_rows(1):
-            self.df = self.df.assign(**{series.name: series})
+            new[series.name] = series
+            self.df = new
 
 
 def label_for_index(index: pd.Index) -> str:
@@ -203,13 +227,15 @@ def label_for_index(index: pd.Index) -> str:
             return "Regular"
 
 
-class PandasIndexListModel(itemmodels.ModelMixin, core.AbstractTableModel):
+class PandasIndexListModel(
+    DataFrameHolderMixin, itemmodels.ModelMixin, core.AbstractTableModel
+):
     HEADER = ["Name", "Index type", "Monotonic"]
     MIME_TYPE = "mime_indexes"
 
-    def __init__(self, ds: pd.DataFrame | None = None, **kwargs):
+    def __init__(self, ds: pd.DataFrame | DataFrameHolder | None = None, **kwargs):
         super().__init__(**kwargs)
-        self.df = ds
+        self._init_holder(ds)
 
     def setData(
         self,
@@ -223,20 +249,22 @@ class PandasIndexListModel(itemmodels.ModelMixin, core.AbstractTableModel):
         match role:
             case constants.EDIT_ROLE if index.column() == 0:
                 level = index.row() if isinstance(self.df.index, pd.MultiIndex) else None
-                self.df.index = self.df.index.set_names(names=value, level=level)
+                self._set_index(self.df.index.set_names(names=value, level=level))
+                self.dataChanged.emit(index, index)
                 return True
             case constants.USER_ROLE if not isinstance(self.df.index, pd.MultiIndex):
                 with self.change_layout():
-                    self.df.index = value
+                    self._set_index(value)
                 return True
             case self.DTYPE_ROLE:
                 try:
-                    with self.change_layout():
-                        self.df.index = self.df.index.astype(value)
-                    return True
-                except TypeError as e:
-                    logger.exception(e)
+                    new_index = self.df.index.astype(value)
+                except (TypeError, ValueError):
+                    logger.exception("Could not convert index to %r", value)
                     return False
+                with self.change_layout():
+                    self._set_index(new_index)
+                return True
         return False
 
     def removeRows(self, row, count, parent=None):
@@ -349,16 +377,29 @@ class PandasIndexListModel(itemmodels.ModelMixin, core.AbstractTableModel):
     def mimeTypes(self):
         return [self.MIME_TYPE]
 
-    def get_index(self, row=None):
+    def get_index(self, row: int = 0):
         assert self.df is not None
         idx = self.df.index
         # using get_level_values() is too slow for large datasets with multiindex
         return idx.levels[row] if isinstance(idx, pd.MultiIndex) else idx
 
-    def to_datetime(self, level=None, fmt: str | None = None):
+    def _set_index(self, new_index):
+        # A new frame (instead of assigning df.index) so shared models get notified.
         assert self.df is not None
+        self.df = self.df.set_axis(new_index, axis="index")
+
+    def to_datetime(self, level: int | None = None, fmt: str | None = None):
+        """Convert the index (or one level of a MultiIndex) to datetimes."""
+        assert self.df is not None
+        index = self.df.index
+        if isinstance(index, pd.MultiIndex):
+            level = level or 0
+            converted = pd.to_datetime(index.levels[level], format=fmt)
+            new_index = index.set_levels(converted, level=level)
+        else:
+            new_index = pd.to_datetime(index, format=fmt)
         with self.change_layout():
-            self.df.index = self.df.index.pt.to_datetime(level=level, fmt=fmt)
+            self._set_index(new_index)
 
     def filter_range(self, start: int, end: int):
         assert self.df is not None

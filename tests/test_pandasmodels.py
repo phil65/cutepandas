@@ -169,9 +169,10 @@ def test_categorylistmodel_user_role_does_not_mutate(cat_df):
 def test_categorylistmodel_sort_order(cat_df):
     model = pandasmodels.PandasCategoryListModel(cat_df, "c")
     model.sort(0, constants.DESCENDING)
-    assert list(cat_df["c"].cat.categories) == ["c", "b", "a"]
+    assert list(model.series.cat.categories) == ["c", "b", "a"]
     model.sort(0, constants.ASCENDING)
-    assert list(cat_df["c"].cat.categories) == ["a", "b", "c"]
+    assert list(model.series.cat.categories) == ["a", "b", "c"]
+    assert list(cat_df["c"].cat.categories) == ["a", "b", "c"]  # caller's frame
 
 
 def test_categorylistmodel_add_categories(qtbot, cat_df):

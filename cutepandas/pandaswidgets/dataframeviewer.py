@@ -7,6 +7,7 @@ import pandas as pd
 from prettyqt import constants, core, custom_widgets, gui, widgets
 
 from cutepandas import pandasmodels
+from cutepandas.pandasmodels import DataFrameHolder
 from cutepandas.utils import helpers
 
 
@@ -17,7 +18,7 @@ QWIDGETSIZE_MAX = (1 << 24) - 1
 
 
 class DataTableView(widgets.TableView):
-    def __init__(self, df=None, **kwargs):
+    def __init__(self, df: pd.DataFrame | DataFrameHolder | None = None, **kwargs):
         super().__init__(**kwargs)
 
         self.h_header.hide()
@@ -29,11 +30,10 @@ class DataTableView(widgets.TableView):
         self.set_scrollbar_policy("always_off")
         self.set_delegate("editor")
         self.set_size_policy("expanding", "expanding")
-        self.set_df(df)
+        self.set_model(pandasmodels.PandasDataFrameModel(df, parent=self))
 
     def set_df(self, df: pd.DataFrame | None):
-        model = pandasmodels.PandasDataFrameModel(df, parent=self)
-        self.set_model(model)
+        self.get_model(skip_proxies=True).holder.df = df
 
     def copy(self):
         """Copy the bounding box of the selected cells as tab-separated text."""
@@ -90,14 +90,20 @@ class DataTableView(widgets.TableView):
 
 
 class DataFrameViewer(widgets.Widget):
-    def __init__(self, df: pd.DataFrame | None = None, **kwargs):
+    def __init__(
+        self, df: pd.DataFrame | DataFrameHolder | None = None, **kwargs
+    ) -> None:
+        """Pass a DataFrameHolder to share the frame with other models / widgets."""
         super().__init__(**kwargs)
-        # Indicates whether the widget has been shown yet. Set to True in
+        # Indicates whether the widget has been shown yet. Set to True in showEvent.
         self._loaded = False
         self._sort_state: tuple[int, bool] | None = None
-        self.df = df
+        if isinstance(df, DataFrameHolder):
+            self.holder = df
+        else:
+            self.holder = DataFrameHolder(df, parent=self)
         # Set up DataFrame TableView and Model
-        self.table_data = DataTableView(df, parent=self)
+        self.table_data = DataTableView(self.holder, parent=self)
         self.set_size_policy("expanding", "expanding")
 
         self.table_data.selectionModel().selectionChanged.connect(
@@ -108,6 +114,12 @@ class DataFrameViewer(widgets.Widget):
         self.table_columns.clicked.connect(self.on_clicked)
 
         self.table_index = HeaderView(orientation=constants.VERTICAL, parent=self)
+        self.table_columns.selectionModel().selectionChanged.connect(
+            self.on_column_selection_changed
+        )
+        self.table_index.selectionModel().selectionChanged.connect(
+            self.on_index_selection_changed
+        )
 
         # Set up layout
         self.layout_grid = self.set_layout("grid", margin=0, spacing=0)
@@ -148,22 +160,29 @@ class DataFrameViewer(widgets.Widget):
         self.layout_grid.setColumnStretch(4, 1)
         self.layout_grid.setRowStretch(4, 1)
 
-        # These placeholders will ensure the size of the blank spaces beside our headers
-        if df is not None:
-            self.set_df(df)
+        # Connected after the models were created, so they are reset before
+        # the header layout gets rebuilt.
+        self.holder.changed.connect(self._on_df_changed)
+        self._on_df_changed()
+
+    @property
+    def df(self) -> pd.DataFrame | None:
+        return self.holder.df
+
+    @df.setter
+    def df(self, df: pd.DataFrame | None):
+        self.set_df(df)
 
     def set_df(self, df: pd.DataFrame | None):
-        self.df = df
-        self._sort_state = None
-        model = pandasmodels.PandasDataFrameModel(df, parent=self.table_data)
-        self.table_data.set_model(model)
+        """Show another frame (in every model / widget sharing the holder)."""
+        self.holder.df = df
 
-        self.table_data.selectionModel().selectionChanged.connect(
-            self._on_selection_changed
-        )
-        # TODO: this gets called twice.
-        self.table_columns.set_df(df)
-        self.table_index.set_df(df)
+    def _on_df_changed(self, origin=None):
+        """Rebuild header spans and sizes for the holder's current frame."""
+        df = self.df
+        self._sort_state = None
+        self.table_columns.refresh()
+        self.table_index.refresh()
         # Only show the level-name headers if there are level names
         v_header = self.table_columns.v_header
         h_header = self.table_index.h_header
@@ -177,12 +196,6 @@ class DataFrameViewer(widgets.Widget):
             h_header.setMaximumHeight(QWIDGETSIZE_MAX)
         else:
             h_header.setFixedHeight(0)
-        self.table_columns.selectionModel().selectionChanged.connect(
-            self.on_column_selection_changed
-        )
-        self.table_index.selectionModel().selectionChanged.connect(
-            self.on_index_selection_changed
-        )
         self._resize_columns()
         self.table_data.updateGeometry()
         self.table_columns.updateGeometry()
@@ -235,7 +248,7 @@ class DataFrameViewer(widgets.Widget):
         column = self.df.iloc[:, col].reset_index(drop=True)
         order = column.sort_values(ascending=ascending, kind="stable").index
         self.set_df(self.df.iloc[order.to_numpy()])
-        self._sort_state = (col, ascending)  # set_df resets it
+        self._sort_state = (col, ascending)  # set after: a frame change resets it
 
     def showEvent(self, event: gui.QShowEvent):
         """Initialize column and row sizes on the first time the widget is shown."""
@@ -430,20 +443,16 @@ class HeaderView(custom_widgets.OrientedTableView):
             self.v_header.hide()
             self.h_header.setDisabled(True)
             self.h_header.setHighlightSections(False)
-        df = parent.df
-        if df is not None:
-            self.set_df(df)
-            self.resize(self.sizeHint())
-
-    def set_df(self, df: pd.DataFrame | None, set_spans: bool = True):
         if self.is_horizontal():
-            model = pandasmodels.HorizontalHeaderModel(df)
+            model = pandasmodels.HorizontalHeaderModel(parent.holder, parent=self)
         else:
-            model = pandasmodels.VerticalHeaderModel(df)
+            model = pandasmodels.VerticalHeaderModel(parent.holder, parent=self)
         self.set_model(model)
+
+    def refresh(self, set_spans: bool = True):
+        """Rebuild spans and sizes after the frame changed."""
         self.clearSpans()  # spans of a previous frame
-        # Link selection to DataTable
-        if set_spans and df is not None:
+        if set_spans and self.get_model(skip_proxies=True).df is not None:
             self.set_spans()
         self.init_size()
         # Set initial size

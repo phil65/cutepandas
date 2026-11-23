@@ -8,18 +8,27 @@ import pandas as pd
 from prettyqt import constants, core, itemmodels
 from prettyqt.utils import helpers
 
+from cutepandas.pandasmodels.dataframeholder import DataFrameHolder, DataFrameHolderMixin
+
 
 logger = logging.getLogger(__name__)
 
 
-class PandasCategoryListModel(itemmodels.ModelMixin, core.AbstractTableModel):
+class PandasCategoryListModel(
+    DataFrameHolderMixin, itemmodels.ModelMixin, core.AbstractTableModel
+):
     MIME_TYPE = "mime_categories"
     HEADER = ["Name", "Code"]
 
-    def __init__(self, df: pd.DataFrame | None = None, col=None, parent=None):
+    def __init__(
+        self,
+        df: pd.DataFrame | DataFrameHolder | None = None,
+        col=None,
+        parent=None,
+    ):
         super().__init__(parent=parent)
-        self.df = df
         self.col = col
+        self._init_holder(df)
 
     @property
     def series(self):
@@ -29,7 +38,11 @@ class PandasCategoryListModel(itemmodels.ModelMixin, core.AbstractTableModel):
     @series.setter
     def series(self, series):
         assert self.df is not None
-        self.df[self.col] = series
+        # A new frame (instead of df[col] = ...) so shared models get notified.
+        # With copy-on-write the shallow copy doesn't touch the caller's frame.
+        df = self.df.copy(deep=False)
+        df[self.col] = series
+        self.df = df
 
     def setData(
         self,
@@ -45,7 +58,7 @@ class PandasCategoryListModel(itemmodels.ModelMixin, core.AbstractTableModel):
                 return False
             rename_dct = {index.data(constants.NAME_ROLE): value}
             with self.change_layout():
-                self.series = self.series.rename_categories(new_categories=rename_dct)
+                self.series = self.series.cat.rename_categories(rename_dct)
             return True
         return False
 

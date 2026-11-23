@@ -19,9 +19,14 @@ class DataFrameWidget(widgets.MainWindow):
     ):
         super().__init__(object_name=object_name, **kwargs)
 
+        # Every panel works on this holder, so an edit in one shows up in all of them.
+        self.holder = pandasmodels.DataFrameHolder(df, parent=self)
         self.index_table = widgets.TableView(selection_behavior="rows")
+        self.index_table.set_model(pandasmodels.PandasIndexListModel(self.holder))
         self.column_table = widgets.TableView(selection_behavior="rows")
-        self.data_table = pandaswidgets.DataFrameViewer(df)
+        self.column_table.set_model(pandasmodels.PandasColumnListModel(self.holder))
+        self.column_table.selectionModel().currentChanged.connect(self._on_current_change)
+        self.data_table = pandaswidgets.DataFrameViewer(self.holder)
         self.setCentralWidget(self.data_table)
         self.category_table = widgets.TableView(selection_behavior="rows")
         self.attrs_table = widgets.TreeView(
@@ -31,29 +36,33 @@ class DataFrameWidget(widgets.MainWindow):
         self.add_dockwidget(self.column_table, window_title="Column list")
         self.add_dockwidget(self.category_table, window_title="Category list")
         self.add_dockwidget(self.attrs_table, window_title="MetaData")
-        self._set_list_models(df)
+        self.holder.changed.connect(self._on_df_changed)
+        self._on_df_changed()
+
+    @property
+    def df(self) -> pd.DataFrame | None:
+        return self.holder.df
 
     def set_df(self, df: pd.DataFrame | None):
-        self.data_table.set_df(df)
-        self._set_list_models(df)
+        self.holder.df = df
 
-    def _set_list_models(self, df: pd.DataFrame | None):
-        attrs = df.attrs if df is not None else {}
+    def _on_df_changed(self, origin=None):
+        attrs = self.df.attrs if self.df is not None else {}
         self.attrs_table.set_model(itemmodels.JsonModel(attrs, show_root=False))
-        self.index_table.set_model(pandasmodels.PandasIndexListModel(df))
-        self.column_table.set_model(pandasmodels.PandasColumnListModel(df))
-        # A new model comes with a new selection model: connect it again.
-        self.column_table.selectionModel().currentChanged.connect(self._on_current_change)
-        self.category_table.set_model(None)
 
     def _on_current_change(self, new: core.ModelIndex, old: core.ModelIndex):
-        model = self.column_table.get_model(skip_proxies=True)
-        if not new.isValid() or model.df is None:
-            self.category_table.set_model(None)
-            return
-        column_name = model.df.columns[new.row()]
-        category_model = pandasmodels.PandasCategoryListModel(model.df, column_name)
-        self.category_table.set_model(category_model)
+        df = self.df
+        model = None
+        if new.isValid() and df is not None and new.row() < len(df.columns):
+            column_name = df.columns[new.row()]
+            model = pandasmodels.PandasCategoryListModel(
+                self.holder, column_name, parent=self
+            )
+        # Delete the previous model: it is connected to the holder and would
+        # otherwise stay alive (and keep resetting) for the widget's lifetime.
+        if (old := self.category_table.model()) is not None:
+            old.deleteLater()
+        self.category_table.set_model(model)
 
 
 if __name__ == "__main__":

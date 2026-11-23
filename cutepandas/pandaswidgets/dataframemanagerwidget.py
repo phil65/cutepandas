@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from prettyqt import widgets
+from prettyqt import constants, widgets
 
 from cutepandas import pandaswidgets
 
@@ -15,6 +15,8 @@ class DataFrameManagerWidget(widgets.Splitter):
         self.dataframe_list.selectionModel().currentRowChanged.connect(
             self._on_current_change
         )
+        self._current_row: int | None = None
+        self.dataframe_editor.holder.changed.connect(self._on_editor_df_changed)
         self.add(self.dataframe_list)
         widget = widgets.Widget()
         widget.set_layout("horizontal")
@@ -29,7 +31,17 @@ class DataFrameManagerWidget(widgets.Splitter):
             return
         # The list model stores the frames; its columns only provide display data.
         df = self.dataframe_list.model().items[new.row()]
+        self._current_row = None  # loading a frame is not an edit
         self.dataframe_editor.set_df(df)
+        self._current_row = new.row()
+
+    def _on_editor_df_changed(self, origin=None):
+        """Store the edited frame in the list, replacing the one it came from."""
+        if self._current_row is None:
+            return
+        model = self.dataframe_list.model()
+        index = model.index(self._current_row, 0)
+        model.setData(index, self.dataframe_editor.df, constants.USER_ROLE)
 
 
 if __name__ == "__main__":
