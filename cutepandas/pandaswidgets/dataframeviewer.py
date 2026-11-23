@@ -518,40 +518,30 @@ class HeaderView(custom_widgets.OrientedTableView):
 
     # This sets spans to group together adjacent cells with the same values
     def set_spans(self):
+        """Merge adjacent equal header labels into one spanning cell per level.
+
+        A span on an inner level also breaks wherever an outer level changes, so
+        ("a", 1), ("b", 1) doesn't merge the two 1s across the a/b boundary.
+        """
         df = self.get_model(skip_proxies=True).df
         index = df.columns if self.is_horizontal() else df.index
-        if len(index) == 0:
+        if len(index) < 2:
             return
-        is_multiindex = isinstance(index, pd.MultiIndex)
-        n = len(index[0]) if is_multiindex else 1
-        for level in range(n):
-            # Find how many segments the MultiIndex has
-            arr = index.codes[level] if is_multiindex else index
-            starts = np.where(arr[:-1] != arr[1:])[0] + 1
-            starts = np.insert(starts, 0, 0)
-            lengths = np.diff(starts)
-            lengths = np.append(lengths, len(arr) - starts[-1])
-            for start, length in zip(starts, lengths):
-                if length > 1:
-                    self.set_section_span(level, start, length)
-            # Holds the starting index of a range of equal values.
-            # None means it is not currently in a range of equal values.
-            # match_start = None
-            # for col in range(1, len(arr)):  # Iterates over cells in row
-            #     # Check if cell matches cell to its left
-            #     if arr[col] == arr[col - 1]:
-            #         if match_start is None:
-            #             match_start = col - 1
-            #         # If this is the last cell, need to end it
-            #         if col == len(arr) - 1:
-            #             match_end = col
-            #             span_size = match_end - match_start + 1
-            #             self.set_section_span(level, match_start, span_size)
-            #     elif match_start is not None:
-            #         match_end = col - 1
-            #         span_size = match_end - match_start + 1
-            #         self.set_section_span(level, match_start, span_size)
-            #         match_start = None
+        if isinstance(index, pd.MultiIndex):
+            levels = [np.asarray(codes) for codes in index.codes]
+        elif index.is_unique:  # cached by pandas, O(1) for a RangeIndex
+            return
+        else:
+            levels = [pd.factorize(index, use_na_sentinel=False)[0]]
+        boundary = np.zeros(len(index) - 1, dtype=bool)  # True: i and i+1 differ
+        for level, codes in enumerate(levels):
+            boundary |= codes[:-1] != codes[1:]
+            starts = np.concatenate(([0], np.flatnonzero(boundary) + 1))
+            lengths = np.diff(np.append(starts, len(index)))
+            # Only ranges longer than one cell need a span: no Python loop over
+            # every row of a long, unique index.
+            for start, length in zip(starts[lengths > 1], lengths[lengths > 1]):
+                self.set_section_span(level, int(start), int(length))
 
     def eventFilter(self, source: core.QObject, event: core.QEvent):
         if not isinstance(event, gui.QMouseEvent):

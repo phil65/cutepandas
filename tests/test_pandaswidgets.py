@@ -99,3 +99,20 @@ def test_qtframe_reductions():
     frame = QtFrame({"a": [1, 2]})
     assert frame.sum()["a"] == 3
     assert frame.T.shape == (1, 2)
+
+
+def test_dataframeviewer_spans(qtbot):
+    index = pd.MultiIndex.from_tuples([("a", 1), ("a", 1), ("b", 1), ("b", 2)])
+    widget = pandaswidgets.DataFrameViewer(pd.DataFrame({"v": range(4)}, index=index))
+    qtbot.addWidget(widget)
+    header = widget.table_index
+    assert header.rowSpan(0, 0) == 2  # "a"
+    assert header.rowSpan(2, 0) == 2  # "b"
+    assert header.rowSpan(0, 1) == 2  # the two 1s inside "a"
+    assert header.rowSpan(2, 1) == 1  # the 1 in "b" doesn't merge across a/b
+
+
+def test_dataframeviewer_spans_unique_index(qtbot):
+    widget = pandaswidgets.DataFrameViewer(pd.DataFrame({"v": range(1000)}))
+    qtbot.addWidget(widget)
+    assert widget.table_index.rowSpan(0, 0) == 1

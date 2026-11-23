@@ -298,3 +298,13 @@ def test_polars_model(qtmodeltester):
     assert model.df[0, "a"] == 5
     model.sort(0, constants.ASCENDING)
     assert model.df["a"].to_list() == [1, 2, 5]
+
+
+@pytest.mark.parametrize("order", [constants.ASCENDING, constants.DESCENDING])
+def test_dataframemodel_sort_stable_nan_last(order):
+    df = pd.DataFrame({"k": [2.0, np.nan, 1.0, 2.0, 1.0], "tag": list("abcde")})
+    model = pandasmodels.PandasDataFrameModel(df)
+    model.sort(0, order)
+    # ties keep their original order, NaN goes last in both directions
+    expected = "ceadb" if order == constants.ASCENDING else "adceb"
+    assert "".join(model.df["tag"]) == expected

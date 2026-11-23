@@ -97,24 +97,25 @@ class PandasDataFrameModel(DataFrameHolderMixin, core.AbstractTableModel):
         index: core.ModelIndex,
         role: constants.ItemDataRole = constants.DISPLAY_ROLE,
     ):
-        if not index.isValid() or self.df is None:
+        df = self.df  # hot path: one lookup through the holder per call
+        if df is None or not index.isValid():
             return None
         match role:
             case constants.DISPLAY_ROLE:
-                cell = self.df.iat[index.row(), index.column()]
+                cell = df.iat[index.row(), index.column()]
                 return "" if _is_missing(cell) else str(cell)
             case constants.EDIT_ROLE:
-                cell = self.df.iat[index.row(), index.column()]
+                cell = df.iat[index.row(), index.column()]
                 return None if _is_missing(cell) else _to_python(cell)
             case constants.TOOLTIP_ROLE:
-                cell = self.df.iat[index.row(), index.column()]
+                cell = df.iat[index.row(), index.column()]
                 return "NaN" if _is_missing(cell) else str(cell)
             case self.Roles.DTypeRole:
-                return self.df.iloc[:, index.column()].dtype
+                return df.dtypes.iloc[index.column()]
             case constants.USER_ROLE:
-                return self.df.iat[index.row(), index.column()]
+                return df.iat[index.row(), index.column()]
             case self.Roles.ColumnNameRole:
-                return self.df.columns[index.column()]
+                return df.columns[index.column()]
         return None
 
     def flags(self, index: core.ModelIndex) -> constants.ItemFlag:
@@ -147,14 +148,21 @@ class PandasDataFrameModel(DataFrameHolderMixin, core.AbstractTableModel):
         return False
 
     def sort(self, ncol: int, order: constants.SortOrder = constants.ASCENDING):
-        if self.df is None or not 0 <= ncol < len(self.df.columns):
+        df = self.df
+        if df is None or not 0 <= ncol < len(df.columns):
             return
-        is_ascending = order == constants.ASCENDING
+        # By position (labels are ambiguous for duplicate columns) and stable, so
+        # sorting by one column after another keeps the earlier order for ties.
+        column = df.iloc[:, ncol]
+        if order == constants.ASCENDING:
+            positions = column.argsort(kind="stable").to_numpy()  # fastest; NaN last
+        else:
+            # argsort can't sort descending; this keeps ties stable and NaN last
+            ranked = column.reset_index(drop=True)
+            ranked = ranked.sort_values(ascending=False, kind="stable")
+            positions = ranked.index.to_numpy()
         with self.change_layout():
-            # sort by position: label-based sorting is ambiguous for duplicate columns
-            column = self.df.iloc[:, ncol].reset_index(drop=True)
-            column = column.sort_values(ascending=is_ascending, kind="stable")
-            self.df = self.df.iloc[column.index.to_numpy()]
+            self.df = df.take(positions)
 
     multiindex_separator = core.Property(
         str,
