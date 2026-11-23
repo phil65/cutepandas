@@ -34,7 +34,7 @@ classifiers = [
   "Topic :: Software Development :: User Interfaces",
   "Typing :: Typed",
 ]
-dependencies = ["numpy>=1.26", "pandas>=2.0", "prettyqt>=1.59"]
+dependencies = ["numpy>=2.5.5", "pandas>=3.1.1", "prettyqt>=1.60.1"]
 
 [project.urls]
 Documentation = "https://phil65.github.io/cutepandas/"
@@ -43,45 +43,45 @@ Issues = "https://github.com/phil65/cutepandas/issues"
 Source = "https://github.com/phil65/cutepandas"
 
 [project.optional-dependencies]
-addons = ["docutils", "orjson"]
-polars = ["polars>=1.0"]
-pyqt6 = ["pyqt6", "PyQt6-Charts", "PyQt6-WebEngine", "PyQt6-QScintilla"]
-pyside6 = ["pyside6"]
+addons = ["docutils>=0.23", "orjson>=3.13.0"]
+polars = ["polars>=2.1.0"]
+pyqt6 = ["pyqt6>=6.12.1", "PyQt6-Charts", "PyQt6-WebEngine", "PyQt6-QScintilla"]
+pyside6 = ["pyside6>=6.12.0"]
 
 [dependency-groups]
 dev = [
-  "commitizen",
-  "deptry",
+  "commitizen>=4.19.4",
+  "deptry>=0.25.1",
   "devtools",
-  "pytest",
+  "pytest>=9.2.0",
   "pytest-cov",
-  "pytest-qt",
+  "pytest-qt>=4.5.0",
   "types-Deprecated",
   "types-docutils",
   "types-orjson",
 ]
 docs = [
-  "mkdocs-material",
-  "mkdocs-mknodes>=1.1.1; python_full_version >= '3.13'",
+  "mkdocs-material>=9.8.2",
+  "mkdocs-mknodes>=2.1.0; python_full_version >= '3.13'",
 ]
 lint = [
   # Pinned on purpose: CI, pre-commit and editors all run exactly these versions.
   "ruff==0.17.6",
-  "ty==0.0.107",
+  "ty==0.0.108",
 ]
 
 [build-system]
-requires = ["uv_build>=0.8.22"]
+requires = ["uv_build>=0.13.9,<0.14"]
 build-backend = "uv_build"
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.3.2"
+version = "0.4.1"
 tag_format = "v$version"
 update_changelog_on_bump = true
 changelog_start_rev = "v0.1.0"
 changelog_file = "docs/changelog.md"
-version_files = ["cutepandas/__init__.py:__version__", "pyproject.toml:version"]
+version_files = ["pyproject.toml:version"]
 
 [tool.deptry]
 extend_exclude = ["docs"]
