@@ -2,64 +2,90 @@
 
 ## Overview
 
-CutePandas provides Qt item models, proxy models and widgets for displaying pandas
-DataFrames (including MultiIndex rows/columns) in Qt applications. It is built on top of
-[prettyqt](https://github.com/phil65/prettyqt) (`from prettyqt import core, widgets, ...`),
-which wraps PySide6 or PyQt6. Not copier-managed: all files are hand-maintained.
+CutePandas provides Qt item models, delegates and widgets for dataframes in Qt
+applications. pandas is the first-class backend (MultiIndex rows/columns, pyarrow-backed
+dtypes); the table / schema / category models also take pyarrow Tables and polars
+DataFrames. It is built on [prettyqt](https://github.com/phil65/prettyqt)
+(`from prettyqt import core, widgets, ...`), which wraps PySide6 or PyQt6. Not
+copier-managed: all files are hand-maintained. pyarrow is a core dependency; polars is
+the optional `polars` extra (never import it at module level outside
+`frames/polarssource.py`).
 
 ## Architecture
 
 Flat package layout (no `src/`): the package lives in `cutepandas/`.
 
-- `cutepandas/pandasmodels/`: Qt models over pandas objects (exported in `__init__.py`).
-  - `pandasdataframemodel.py`: `PandasDataFrameModel` (cells; joins MultiIndex levels with a
-    separator), `VerticalHeaderModel` / `HorizontalHeaderModel` (one cell per index level).
-  - `pandascolumnlistmodel.py`: `PandasColumnListModel`, `PandasIndexListModel` (list
-    columns / index levels of a DataFrame, with dtype info and icons).
-  - `pandascategorylistmodel.py`: `PandasCategoryListModel` (categories of a category column).
-  - `dataframeholder.py`: `DataFrameHolder` (shared, observable frame) and the
-    `DataFrameHolderMixin` the pandas models use for `self.df`.
+- `cutepandas/frames/` (Qt-free): the backend-agnostic core.
+  - `source.py`: `FrameSource` protocol (`row_count`, `columns` -> `ColumnInfo`,
+    `fetch(start, stop, cols)` -> `ColumnChunk` (Python values + null mask),
+    `fetch_arrow`, `null_count`, `nbytes`, `value_range`, `value_counts`,
+    `categories`, `describe` -> `ColumnStats`), optional `SortableSource` /
+    `EditableSource`, the `Kind` enum (dtype family).
+  - `pandassource.py`, `arrowsource.py`, `polarssource.py`: adapters + dtype -> `Kind`
+    mapping. `frames.as_source(obj)` picks the adapter.
+  - `formatters.py`: `FormatOptions`, per-`Kind` formatters, `format_chunk`.
+  - `chunkcache.py`: `ChunkCache`, thread-safe LRU of (row block, column) -> chunk with
+    generations (stale worker results are dropped).
+- `cutepandas/pandasmodels/`: Qt models (exported in `__init__.py`).
+  - `dataframemodel.py`: `DataFrameModel` (virtual, any backend, windowed chunk cache,
+    `color_values`, `NormalizedRole`, `prefetch()` for workers),
+    `VerticalHeaderModel` / `HorizontalHeaderModel` (one cell per pandas index level;
+    row numbers / single row for other backends).
+  - `schemamodel.py`: `SchemaModel` (columns, dtype, icon, nulls, size; read-only).
+    `pandascolumnlistmodel.py`: `PandasColumnListModel(SchemaModel)` adds pandas editing;
+    `PandasIndexListModel` (index levels).
+  - `categorymodel.py`: `CategoryModel` (read-only, any backend);
+    `pandascategorylistmodel.py`: `PandasCategoryListModel(CategoryModel)` edits.
+  - `dataframeholder.py`: `DataFrameHolder` (shared, observable frame of any backend;
+    `df` = native frame, `source` = adapter) and the `DataFrameHolderMixin`.
   - `pandasindexfilterproxymodel.py`: `BasePandasIndexFilterProxyModel` and subclasses
     (`PandasStringColumnFilterProxyModel`, `PandasEvalFilterProxyModel`,
     `PandasMultiStringColumnFilterProxyModel`). These are `AbstractProxyModel`s that filter
     via a NumPy boolean mask (`compute_filter`) plus row mapping instead of
     `QSortFilterProxyModel`; any structural change of the source recomputes the mask.
-  - `polarsdataframemodel.py`: `PolarsDataFrameModel`; needs the `polars` extra, not
-    imported by the package `__init__`.
+    pandas only.
+- `cutepandas/delegates/`: `DTypeDelegate` (dtype combo box), `ValueColorDelegate`
+  (data bar / heat map from `NormalizedRole`).
 - `cutepandas/pandaswidgets/`: widgets (exported in `__init__.py`).
   - `dataframeviewer.py`: `DataFrameViewer`, a composite of data table + column header +
     index header (`HeaderView`, a prettyqt `OrientedTableView`) kept in sync on
-    scroll/resize/selection; supports MultiIndex spans.
-  - `dataframeviewer2.py`: alternative `DataFrameViewer` implementation (not exported).
+    scroll/resize/selection; supports MultiIndex spans (pandas), any backend.
+  - `columnprofilewidget.py`: `ColumnProfileWidget` (stats + top values), `TopValuesModel`.
   - `dataframewidget.py`: `DataFrameWidget` (main window: viewer plus dock widgets for
-    index list, column list, categories and `df.attrs`).
+    index list, column list, categories, column profile and `df.attrs`).
   - `dataframelistwidget.py`: `DataFrameListWidget` (table of several DataFrames).
   - `dataframemanagerwidget.py`: `DataFrameManagerWidget` (list + `DataFrameWidget`).
 - `cutepandas/qtframe/qtframe.py`: experimental `QtFrame` DataFrame subclass that emits a
   Qt signal when an operation changes the shape. Not exported.
-- `cutepandas/utils/`: `icons.py` (dtype to icon), `helpers.py` (`infer_type`, misc).
+- `cutepandas/utils/`: `icons.py` (dtype / `Kind` / index to icon), `helpers.py`.
 - `cutepandas/constants/iconnames.py`: icon name constants.
 
-Models keep the DataFrame on `self.df`; views find it through
-`view.get_model(skip_proxies=True).df`.
+Models keep the frame on `self.df` (native) and `self.source` (adapter); views find it
+through `view.get_model(skip_proxies=True).df`.
 
 `self.df` lives in a `DataFrameHolder` (`pandasmodels/dataframeholder.py`). Pass one
 holder to several models / `DataFrameViewer` to share a frame: assigning `model.df` (or
 `holder.df`) emits `about_to_change` / `changed`, and every other model of that holder
-resets itself. `DataFrameWidget` uses one holder for all its panels. So a model must
-**replace** the frame (`self.df = df.rename(...)`), building the new frame completely
-before assigning it; changing it in place (`df.index = ...`, `df[col] = ...`) notifies
-nobody. Cell edits via `iat` are the one in-place exception (all models share the object).
+resets itself (and drops its caches; `DataFrameModel` also drops its cache for its own
+changes). So a model must **replace** the frame (`self.df = df.rename(...)`), building
+the new frame completely before assigning it; changing it in place (`df.index = ...`,
+`df[col] = ...`) notifies nobody. Cell edits via `EditableSource.set_value` are the one
+in-place exception (other `DataFrameModel`s on the same holder keep stale cache blocks).
+
+Threads: Qt methods, holder and widgets on the GUI thread; `DataFrameModel.prefetch`,
+`ChunkCache` and `FrameSource` reads on any thread. No module-level mutable state.
 
 ## Where to look
 
 | Task | Location |
 | --- | --- |
-| Cell display / editing / roles | `cutepandas/pandasmodels/pandasdataframemodel.py` |
+| Cell display / editing / roles | `cutepandas/pandasmodels/dataframemodel.py` |
+| Backend adapters, dtype kinds | `cutepandas/frames/` |
+| Value formatting | `cutepandas/frames/formatters.py` |
 | Fast filtering | `cutepandas/pandasmodels/pandasindexfilterproxymodel.py` |
 | MultiIndex header rendering, synced scrolling | `cutepandas/pandaswidgets/dataframeviewer.py` |
 | Explorer window with docks | `cutepandas/pandaswidgets/dataframewidget.py` |
-| Dtype icons | `cutepandas/utils/icons.py`, `cutepandas/constants/iconnames.py` |
+| Dtype icons / delegates | `cutepandas/utils/icons.py`, `cutepandas/delegates/` |
 | Tests and fixtures | `tests/`, `tests/conftest.py` |
 | CI | `.github/workflows/build.yml`, `.github/workflows/documentation.yml` |
 | Docs config | `mkdocs.yml` |
@@ -91,6 +117,8 @@ commit messages (conventional commits).
 - Signals are declared as `core.Signal(...)`; ty cannot type them across both bindings, so
   they carry `# ty: ignore[missing-argument]`.
 - Tests use pytest-qt (`qtbot`, `qtmodeltester`); the `df` fixture is a small 2-column frame.
+  `tests/test_frames.py` and `tests/test_dataframemodel.py` run every test for pandas,
+  pandas with pyarrow dtypes, pyarrow and polars (`BACKENDS`).
 
 ## Pitfalls
 
