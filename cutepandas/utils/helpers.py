@@ -14,7 +14,7 @@ def infer_type(text: str):
         if float(text).is_integer():
             return int(text)
         return float(text)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return text
 
 

@@ -3,7 +3,7 @@ name = "cutepandas"
 version = "0.4.1"
 description = "Qt item models, filter proxies and widgets for pandas DataFrames"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "phil65", email = "philipptemminghoff@googlemail.com" }]
@@ -26,8 +26,6 @@ classifiers = [
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.12",
-  "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
   "Topic :: Scientific/Engineering :: Visualization",
   "Topic :: Software Development :: Libraries :: Python Modules",
@@ -62,7 +60,7 @@ dev = [
 ]
 docs = [
   # mknodes >= 4 includes the site generator (formerly mkdocs-mknodes)
-  "mknodes>=4.0.0; python_full_version >= '3.13'",
+  "mknodes>=4.0.0",
   # Zensical renders the API pages' `:::` blocks through mkdocstrings
   # (mknodes >= 3 no longer pulls it in).
   "mkdocstrings[python]>=1.0",
@@ -114,7 +112,7 @@ qt_log_level_fail = "CRITICAL"
 [tool.ruff]
 line-length = 90
 extend-exclude = ["docs", "__init__.py", "prettyqt/qt/"]
-target-version = "py312"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = [
@@ -223,7 +221,7 @@ preview = true
 docstring-code-format = true
 
 [tool.ty.environment]
-python-version = "3.12"
+python-version = "3.14"
 python-platform = "all"
 
 [tool.ty.src]

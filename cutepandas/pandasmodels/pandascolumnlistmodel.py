@@ -95,7 +95,7 @@ class PandasColumnListModel(
         assert df is not None
         try:
             column = df.iloc[:, pos].astype(dtype)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             logger.exception("Could not convert column %r to %r", pos, dtype)
             return False
         return self._replace_column(pos, column)
@@ -259,7 +259,7 @@ class PandasIndexListModel(
             case self.DTYPE_ROLE:
                 try:
                     new_index = self.df.index.astype(value)
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     logger.exception("Could not convert index to %r", value)
                     return False
                 with self.change_layout():
