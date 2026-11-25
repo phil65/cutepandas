@@ -1,3 +1,11 @@
+## v0.6.2 (2026-11-25)
+
+### Fix
+
+- `DataFrameViewer` fits every column to its header and first rows (only the first
+  column was fitted before) and uses one single-line row height (rows were measured
+  with word wrap in 100 px columns: 40-55 px tall); data cells no longer wrap
+
 ## v0.6.1 (2026-11-25)
 
 ### Fix

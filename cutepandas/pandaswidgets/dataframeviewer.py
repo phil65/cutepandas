@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 
 SelectionFlag = core.ItemSelectionModel.SelectionFlag
 QWIDGETSIZE_MAX = (1 << 24) - 1
+ROW_PADDING = 10
+MAX_ROW_HEIGHT = 100
 
 
 def _pd_axis(df: Any, horizontal: bool) -> pd.Index | None:
@@ -51,6 +53,7 @@ class DataTableView(widgets.TableView):
         self.set_margin(0)
         self.set_delegate("no_focus")
         self.set_scrollbar_policy("always_off")
+        self.setWordWrap(False)  # single-line cells (row height assumes it)
         self.set_delegate("editor")
         self.set_size_policy("expanding", "expanding")
         self.set_model(pandasmodels.DataFrameModel(df, parent=self))
@@ -421,26 +424,18 @@ class DataFrameViewer(widgets.Widget):
         event.accept()
 
     def _resize_columns(self):
-        N = 50
-        columns = min(self.table_index.model().columnCount(), N)
+        """Fit the first columns to header + first rows; one single-line row height."""
+        n = 50
+        columns = min(self.table_data.model().columnCount(), n)
         for column_index in range(columns):
             self.auto_size_column(column_index)
-
-        # Set row heights
-        # Just sets a single uniform row height based on the first
-        # N rows for performance.
-        default_row_height = 30
-        rows = min(self.table_index.model().rowCount(), N)
-        for row_index in range(rows):
-            self.auto_size_row(row_index)
-            height = self.table_index.rowHeight(row_index)
-            default_row_height = max(default_row_height, height)
-
-        # Set limit for default row height
-        default_row_height = min(default_row_height, 100)
-
-        self.table_index.v_header.setDefaultSectionSize(default_row_height)
-        self.table_data.v_header.setDefaultSectionSize(default_row_height)
+        # Cells do not wrap, so a row is one line of text (index labels may be taller).
+        height = self.table_data.fontMetrics().height() + ROW_PADDING
+        for row_index in range(min(self.table_index.model().rowCount(), n)):
+            height = max(height, self.table_index.sizeHintForRow(row_index))
+        height = min(height, MAX_ROW_HEIGHT)
+        self.table_index.v_header.setDefaultSectionSize(height)
+        self.table_data.v_header.setDefaultSectionSize(height)
 
     def on_column_selection_changed(self, selected, deselected):
         if not self.table_columns.hasFocus():

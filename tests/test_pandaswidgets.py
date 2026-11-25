@@ -132,3 +132,24 @@ def test_dataframeviewer_fills_parent(qtbot):
     # the data table (not an empty grid cell) takes the extra space
     assert viewer.table_data.width() > 700
     assert viewer.table_data.height() > 550
+
+
+def test_dataframeviewer_fits_columns_and_row_height(qtbot):
+    df = pd.DataFrame({
+        "a": [1, 2],
+        "ts": pd.to_datetime(["2023-01-01 08:01:00", "2023-01-02 09:00:00"]),
+        "text": ["a rather long text value in this cell", "x"],
+    })
+    viewer = pandaswidgets.DataFrameViewer(df)
+    qtbot.addWidget(viewer)
+    viewer.resize(1200, 400)
+    viewer.show()
+    table = viewer.table_data
+    metrics = table.fontMetrics()
+    texts = {1: "2023-01-01 08:01:00", 2: "a rather long text value in this cell"}
+    for col, text in texts.items():  # every column fitted, not only the first
+        assert table.columnWidth(col) >= metrics.horizontalAdvance(text)
+        assert viewer.table_columns.columnWidth(col) == table.columnWidth(col)
+    # one line per row, not the height of text wrapped into a narrow column
+    assert table.rowHeight(0) <= metrics.height() * 2
+    assert viewer.table_index.rowHeight(0) == table.rowHeight(0)
