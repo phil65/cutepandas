@@ -111,6 +111,11 @@ def _make_state(
     )
 
 
+# Built once: flags() runs per painted cell, and enum flag operations are slow.
+_READ_ONLY_FLAGS = constants.IS_ENABLED | constants.IS_SELECTABLE
+_EDITABLE_FLAGS = _READ_ONLY_FLAGS | constants.IS_EDITABLE
+
+
 class DataFrameModel(DataFrameHolderMixin, core.AbstractTableModel):
     """Virtual table model for pandas, pyarrow and polars frames.
 
@@ -189,6 +194,7 @@ class DataFrameModel(DataFrameHolderMixin, core.AbstractTableModel):
         self._options = format_options or FormatOptions()
         self._color_values = color_values
         self._dtype_icons = dtype_icons
+        self._kind_icons = icons.KindIconCache()
         self._read_only = read_only
         self._sort_mode: SortMode = sort_mode
         self._data_generation = 0
@@ -437,7 +443,7 @@ class DataFrameModel(DataFrameHolderMixin, core.AbstractTableModel):
             case constants.ALIGNMENT_ROLE:
                 return constants.ALIGN_CENTER
             case constants.DECORATION_ROLE if self._dtype_icons:
-                return icons.icon_for_kind(info.kind)
+                return self._kind_icons.icon(info.kind)
             case self.Roles.DTypeRole:
                 return info.native_dtype
             case self.Roles.KindRole:
@@ -449,10 +455,7 @@ class DataFrameModel(DataFrameHolderMixin, core.AbstractTableModel):
     def flags(self, index: core.ModelIndex) -> constants.ItemFlag:
         if not index.isValid():
             return constants.NO_FLAGS
-        flags = constants.IS_ENABLED | constants.IS_SELECTABLE
-        if self.is_editable():
-            flags |= constants.IS_EDITABLE
-        return flags
+        return _EDITABLE_FLAGS if self.is_editable() else _READ_ONLY_FLAGS
 
     def is_editable(self) -> bool:
         return not self._read_only and isinstance(self._state.source, EditableSource)

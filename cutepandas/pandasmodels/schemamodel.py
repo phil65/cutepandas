@@ -47,6 +47,7 @@ class SchemaModel(
         self._translate = translate
         self._null_counts: dict[int, int] = {}
         self._sizes: dict[int, int] = {}
+        self._kind_icons = icons.KindIconCache()
         self._init_holder(df)
 
     def _on_holder_changed(self, origin: Any):
@@ -111,7 +112,7 @@ class SchemaModel(
             case constants.ALIGNMENT_ROLE, 2 | 3:
                 return constants.ALIGN_RIGHT | constants.ALIGN_V_CENTER
             case constants.DECORATION_ROLE, 0:
-                return icons.icon_for_kind(info.kind)
+                return self._kind_icons.icon(info.kind)
             case constants.TOOLTIP_ROLE, _:
                 return (
                     f"<b>{info.label}</b><br>{self._tr(N_('Type'))}: {info.dtype}"

@@ -30,10 +30,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 SelectionFlag = core.ItemSelectionModel.SelectionFlag
-AUTOSIZE_COLUMNS = 50
-AUTOSIZE_ROWS = 75
-MAX_COLUMN_WIDTH = 400
+# Distance (px) from a header cell edge that starts a drag-resize.
 EDGE_TOLERANCE = 4
+# Vertical padding of a column header row (a bit taller than data rows).
+HEADER_ROW_PADDING = ROW_PADDING + 2
+MIN_DRAG_COLUMN_WIDTH = 24
+MIN_DRAG_ROW_HEIGHT = 18
 
 
 class CornerLevelModel(DataFrameHolderMixin, core.AbstractTableModel):
@@ -258,6 +260,8 @@ class GridDataFrameViewer(SortableViewerMixin, widgets.Widget):
 
         # 2x2 grid layout + scrollbars
         layout = self.set_layout("grid", spacing=0, margin=0)
+        # room for the 1 px outer border painted by paintEvent
+        layout.setContentsMargins(1, 1, 1, 1)
         layout[0, 0] = self.table_level
         layout[0, 1] = self.table_header
         layout[1, 0] = self.table_index
@@ -275,39 +279,32 @@ class GridDataFrameViewer(SortableViewerMixin, widgets.Widget):
         self._on_df_changed()
 
     def _apply_style(self):
-        if getattr(self, "_applying_style", False):
-            return
-        self._applying_style = True
-        try:
-            colors = _viewer_style.ViewerColors.from_palette(
-                widgets.QApplication.palette(self.table_data)
-            )
-            _viewer_style.apply_composite_frame_style(self, colors)
-            _viewer_style.apply_data_table_style(self.table_data, colors)
-            _viewer_style.apply_corner_table_style(self.table_level, colors)
-            _viewer_style.apply_header_table_style(
-                self.table_header, colors, constants.HORIZONTAL
-            )
-            _viewer_style.apply_header_table_style(
-                self.table_index, colors, constants.VERTICAL
-            )
-            data_delegate = self.table_data.itemDelegate()
-            if isinstance(data_delegate, _viewer_style.DataCellDelegate):
-                data_delegate.set_colors(colors)
-            for view in (self.table_header, self.table_index):
-                delegate = view.itemDelegate()
-                if isinstance(delegate, _viewer_style.HeaderCellDelegate):
-                    delegate.set_colors(colors)
-            corner_delegate = self.table_level.itemDelegate()
-            if isinstance(corner_delegate, _viewer_style.CornerCellDelegate):
-                corner_delegate.set_colors(colors)
-        finally:
-            self._applying_style = False
+        """Derive the colours from the viewer's palette (light or dark theme)."""
+        colors = _viewer_style.ViewerColors.from_palette(self.palette())
+        self._colors = colors
+        _viewer_style.style_table(self.table_data, colors.base, colors.alt_row)
+        _viewer_style.style_table(self.table_header, colors.header_bg)
+        _viewer_style.style_table(self.table_index, colors.header_bg)
+        _viewer_style.style_table(self.table_level, colors.header_outer_bg)
+        for view in (
+            self.table_data,
+            self.table_header,
+            self.table_index,
+            self.table_level,
+        ):
+            _viewer_style.restyle_view(view, colors)
+        self.update()
+
+    def paintEvent(self, event: gui.QPaintEvent):
+        _viewer_style.paint_frame(self, self._colors)
 
     def changeEvent(self, event: core.QEvent):
         super().changeEvent(event)
-        if event.type() == core.QEvent.Type.PaletteChange:
-            self._apply_style()
+        if event.type() in {
+            core.QEvent.Type.PaletteChange,
+            core.QEvent.Type.StyleChange,  # e.g. an application style sheet (theme)
+        }:
+            self._apply_style()  # sets the children's palettes only: no recursion
 
     @property
     def df(self) -> Any:
@@ -350,7 +347,12 @@ class GridDataFrameViewer(SortableViewerMixin, widgets.Widget):
         header_model = self.table_header.model()
         index_model = self.table_index.model()
         level_model = self.table_level.model()
-        if data_model is None or header_model is None or index_model is None:
+        if (
+            data_model is None
+            or header_model is None
+            or index_model is None
+            or level_model is None
+        ):
             return
 
         # 1. Row height for data + index
@@ -359,40 +361,34 @@ class GridDataFrameViewer(SortableViewerMixin, widgets.Widget):
         self.table_index.v_header.setDefaultSectionSize(row_h)
 
         # 2. Header row height (for table_header & table_level)
-        hdr_row_h = self.table_header.fontMetrics().height() + ROW_PADDING + 2
+        hdr_row_h = self.table_header.fontMetrics().height() + HEADER_ROW_PADDING
         self.table_header.v_header.setDefaultSectionSize(hdr_row_h)
         self.table_level.v_header.setDefaultSectionSize(hdr_row_h)
 
         # 3. Fit data / header columns
-        for col in range(min(data_model.columnCount(), AUTOSIZE_COLUMNS)):
+        for col in range(min(data_model.columnCount(), _viewer_style.AUTOSIZE_COLUMNS)):
             self.auto_size_column(col)
 
         # 4. Fit index / corner columns (bounded sample + last row for trailing width)
         metrics = self.table_index.fontMetrics()
-        pad = _viewer_style.HEADER_HPAD * 2 + 12
-        row_count = index_model.rowCount()
-        sample = list(range(min(row_count, AUTOSIZE_ROWS)))
-        if row_count > AUTOSIZE_ROWS:
-            sample.append(row_count - 1)
+        rows = _viewer_style.sample_rows(index_model.rowCount())
         idx_total_w = 0
         for col in range(index_model.columnCount()):
-            w = 36
-            if level_model is not None:
-                for r in range(level_model.rowCount()):
-                    txt = str(level_model.data(level_model.index(r, col)) or "")
-                    w = max(w, metrics.horizontalAdvance(txt) + pad)
-            for r in sample:
-                txt = str(index_model.data(index_model.index(r, col)) or "")
-                w = max(w, metrics.horizontalAdvance(txt) + pad)
-            w = min(w, MAX_COLUMN_WIDTH)
+            texts = [
+                str(level_model.data(level_model.index(r, col)) or "")
+                for r in range(level_model.rowCount())
+            ]
+            texts.extend(
+                str(index_model.data(index_model.index(r, col)) or "") for r in rows
+            )
+            w = _viewer_style.fitted_index_width(texts, metrics)
             self.table_index.setColumnWidth(col, w)
             # Qt may round up to its minimum section size: use the applied width.
             w = self.table_index.columnWidth(col)
             self.table_level.setColumnWidth(col, w)
             idx_total_w += w
 
-        hdr_total_h = header_model.rowCount() * hdr_row_h + 1  # +1 for divider border
-        idx_total_w = idx_total_w + 1 if index_model.columnCount() > 0 else 0
+        hdr_total_h = header_model.rowCount() * hdr_row_h
 
         self.table_header.setFixedHeight(hdr_total_h)
         self.table_level.setFixedHeight(hdr_total_h)
@@ -428,25 +424,17 @@ class GridDataFrameViewer(SortableViewerMixin, widgets.Widget):
             or not 0 <= column_index < data_model.columnCount()
         ):
             return
-        header_font = gui.Font(self.table_header.font())
-        header_font.set_weight("demi_bold")
-        header_metrics = gui.FontMetrics(header_font)
-        header_extra = _viewer_style.HEADER_HPAD * 2 + _viewer_style.SORT_ARROW_SPACE
-        if self._dtype_icons:
-            header_extra += 20
-
-        width = 60
-        for r in range(header_model.rowCount()):
-            text = str(header_model.data(header_model.index(r, column_index)) or "")
-            width = max(width, header_metrics.horizontalAdvance(text) + header_extra)
-
-        cell_metrics = self.table_data.fontMetrics()
-        cell_pad = _viewer_style.CELL_HPAD * 2 + 12
-        for r in range(min(data_model.rowCount(), AUTOSIZE_ROWS)):
-            text = str(data_model.data(data_model.index(r, column_index)) or "")
-            width = max(width, cell_metrics.horizontalAdvance(text) + cell_pad)
-
-        width = min(width, MAX_COLUMN_WIDTH)
+        rows = range(min(data_model.rowCount(), _viewer_style.SAMPLE_ROWS))
+        width = _viewer_style.fitted_column_width(
+            (
+                str(header_model.data(header_model.index(r, column_index)) or "")
+                for r in range(header_model.rowCount())
+            ),
+            self.table_header.font(),
+            (str(data_model.data(data_model.index(r, column_index)) or "") for r in rows),
+            self.table_data.fontMetrics(),
+            icon_space=_viewer_style.HEADER_ICON_SPACE if self._dtype_icons else 0,
+        )
         self.table_header.setColumnWidth(column_index, width)
         self.table_data.setColumnWidth(column_index, width)
 
@@ -503,7 +491,10 @@ class GridDataFrameViewer(SortableViewerMixin, widgets.Widget):
                         return True
                 case core.QEvent.Type.MouseMove:
                     if self._resizing_col is not None:
-                        new_w = max(24, self._resize_initial_w + x - self._resize_start_x)
+                        new_w = max(
+                            MIN_DRAG_COLUMN_WIDTH,
+                            self._resize_initial_w + x - self._resize_start_x,
+                        )
                         self.table_header.setColumnWidth(self._resizing_col, new_w)
                         self.table_data.setColumnWidth(self._resizing_col, new_w)
                         return True
@@ -531,7 +522,10 @@ class GridDataFrameViewer(SortableViewerMixin, widgets.Widget):
                         return True
                 case core.QEvent.Type.MouseMove:
                     if self._resizing_row is not None:
-                        new_h = max(18, self._resize_initial_h + y - self._resize_start_y)
+                        new_h = max(
+                            MIN_DRAG_ROW_HEIGHT,
+                            self._resize_initial_h + y - self._resize_start_y,
+                        )
                         self.table_index.setRowHeight(self._resizing_row, new_h)
                         self.table_data.setRowHeight(self._resizing_row, new_h)
                         return True

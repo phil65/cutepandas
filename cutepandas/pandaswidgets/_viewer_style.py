@@ -12,12 +12,74 @@ from cutepandas.utils import icons
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
 
 
+# Horizontal text padding inside a data cell (each side).
 CELL_HPAD = 6
+# Horizontal text padding inside a header cell (each side).
 HEADER_HPAD = 8
+# Room for the sort arrow at the right edge of the sorted leaf header.
 SORT_ARROW_SPACE = 16
+# Size of the dtype icon painted by `HeaderCellDelegate`.
+HEADER_ICON_SIZE = 13
+# Gap between the dtype icon and the header text.
+HEADER_ICON_GAP = 5
+# Width a dtype icon adds to a fitted header column (icon, gap, 2 px slack).
+HEADER_ICON_SPACE = HEADER_ICON_SIZE + HEADER_ICON_GAP + 2
+# Width a dtype icon adds to a native `QHeaderView` section (16 px icon + margins).
+NATIVE_HEADER_ICON_SPACE = 22
+# Extra width for fitted columns, so measured text is not elided by rounding.
+FIT_SLACK = 12
+# Narrowest fitted data column.
+MIN_COLUMN_WIDTH = 60
+# Narrowest fitted index level column.
+MIN_INDEX_COLUMN_WIDTH = 36
+# Widest fitted column (data and index); wider text is elided.
+MAX_COLUMN_WIDTH = 400
+# Columns fitted when a frame is set (the others when they scroll into view).
+AUTOSIZE_COLUMNS = 50
+# Rows measured to fit a column (bounded: O(1) in the frame length).
+SAMPLE_ROWS = 75
+
+
+def sample_rows(row_count: int) -> list[int]:
+    """Rows measured to fit a column: the first `SAMPLE_ROWS` and the last one."""
+    rows = list(range(min(row_count, SAMPLE_ROWS)))
+    if row_count > SAMPLE_ROWS:
+        rows.append(row_count - 1)  # widest trailing row number
+    return rows
+
+
+def fitted_column_width(
+    header_texts: Iterable[str],
+    header_font: gui.QFont,
+    cell_texts: Iterable[str],
+    cell_metrics: gui.QFontMetrics,
+    *,
+    icon_space: int = 0,
+) -> int:
+    """Width of a data column fitting its (bold) header labels and sampled cells."""
+    font = gui.Font(header_font)
+    font.set_weight("demi_bold")
+    header_metrics = gui.FontMetrics(font)
+    header_extra = HEADER_HPAD * 2 + SORT_ARROW_SPACE + icon_space
+    width = MIN_COLUMN_WIDTH
+    for text in header_texts:
+        width = max(width, header_metrics.horizontalAdvance(text) + header_extra)
+    cell_extra = CELL_HPAD * 2 + FIT_SLACK
+    for text in cell_texts:
+        width = max(width, cell_metrics.horizontalAdvance(text) + cell_extra)
+    return min(width, MAX_COLUMN_WIDTH)
+
+
+def fitted_index_width(texts: Iterable[str], metrics: gui.QFontMetrics) -> int:
+    """Width of an index level column fitting `texts` (level name, sampled labels)."""
+    extra = HEADER_HPAD * 2 + FIT_SLACK
+    width = MIN_INDEX_COLUMN_WIDTH
+    for text in texts:
+        width = max(width, metrics.horizontalAdvance(text) + extra)
+    return min(width, MAX_COLUMN_WIDTH)
 
 
 def blend(c1: gui.QColor, c2: gui.QColor, ratio: float) -> gui.QColor:
@@ -28,10 +90,6 @@ def blend(c1: gui.QColor, c2: gui.QColor, ratio: float) -> gui.QColor:
         round(c1.green() * ratio + c2.green() * inv),
         round(c1.blue() * ratio + c2.blue() * inv),
     )
-
-
-def _hex(color: Any) -> str:
-    return color.name()
 
 
 @dataclass(frozen=True)
@@ -77,7 +135,39 @@ class ViewerColors:
         )
 
 
-class DataCellDelegate(widgets.StyledItemDelegate):
+# Plain ints: Python enum flag operations cost more than the rest of a cell's paint.
+_SELECTED = widgets.QStyle.StateFlag.State_Selected.value
+_HAS_FOCUS = widgets.QStyle.StateFlag.State_HasFocus.value
+_ALTERNATE = widgets.QStyleOptionViewItem.ViewItemFeature.Alternate.value
+_ALIGN_CELL = (constants.ALIGN_LEFT | constants.ALIGN_V_CENTER).value
+_ELIDE_RIGHT = constants.TextElideMode.ElideRight
+
+
+def _align_value(align: Any, default: int) -> int:
+    if align is None:
+        return default
+    return align if isinstance(align, int) else align.value
+
+
+class _PaletteColorsMixin:
+    """Colours set by the viewer (`set_colors`), else derived from the palette."""
+
+    _colors: ViewerColors | None = None
+    _fallback: tuple[int, ViewerColors] | None = None
+
+    def set_colors(self, colors: ViewerColors):
+        self._colors = colors
+
+    def colors_for(self, palette: gui.QPalette) -> ViewerColors:
+        if self._colors is not None:
+            return self._colors
+        key = palette.cacheKey()
+        if self._fallback is None or self._fallback[0] != key:
+            self._fallback = (key, ViewerColors.from_palette(palette))
+        return self._fallback[1]
+
+
+class DataCellDelegate(_PaletteColorsMixin, widgets.StyledItemDelegate):
     """Clean cell renderer: horizontal padding, muted null marker, no dotted focus."""
 
     def __init__(
@@ -88,10 +178,6 @@ class DataCellDelegate(widgets.StyledItemDelegate):
     ):
         super().__init__(parent=parent)
         self._null_placeholder = null_placeholder
-        self._colors: ViewerColors | None = None
-
-    def set_colors(self, colors: ViewerColors):
-        self._colors = colors
 
     def paint(
         self,
@@ -99,23 +185,33 @@ class DataCellDelegate(widgets.StyledItemDelegate):
         option: Any,
         index: core.ModelIndex,
     ):
-        colors = self._colors or ViewerColors.from_palette(option.palette)
+        colors = self.colors_for(option.palette)
         rect = option.rect
-        state = option.state
-        is_selected = bool(state & widgets.QStyle.StateFlag.State_Selected)
-        has_focus = bool(state & widgets.QStyle.StateFlag.State_HasFocus)
+        state = option.state.value
+        is_selected = state & _SELECTED
+        has_focus = state & _HAS_FOCUS
+        # A plain DataFrameModel has no colour roles unless it colours values: skip
+        # those queries (each data() call is a round trip into Python).
+        model = index.model()
+        style_roles = not isinstance(model, DataFrameModel) or model.get_color_values()
 
         painter.save()
         # Background
         if is_selected:
             bg = colors.selection_bg
-        elif (role_bg := index.data(constants.BACKGROUND_ROLE)) is not None:
+        elif (
+            style_roles and (role_bg := index.data(constants.BACKGROUND_ROLE)) is not None
+        ):
             bg = role_bg
-        elif option.features & widgets.QStyleOptionViewItem.ViewItemFeature.Alternate:
+        elif option.features.value & _ALTERNATE:
             bg = colors.alt_row
         else:
             bg = colors.base
-        painter.fillRect(rect.x(), rect.y(), rect.width(), rect.height(), bg)
+        x, y, w, h = rect.getRect()
+        painter.fillRect(x, y, w, h, bg)
+        # grid hairlines (right, bottom); the view's own grid is off
+        painter.fillRect(x + w - 1, y, 1, h, colors.grid)
+        painter.fillRect(x, y + h - 1, w, 1, colors.grid)
 
         # Text (only query IsNullRole when display text is empty)
         raw_text = index.data(constants.DISPLAY_ROLE)
@@ -141,18 +237,19 @@ class DataCellDelegate(widgets.StyledItemDelegate):
                     painter.setFont(option.font)
                     if is_selected:
                         fg = colors.selection_fg
-                    elif (role_fg := index.data(constants.FOREGROUND_ROLE)) is not None:
+                    elif (
+                        style_roles
+                        and (role_fg := index.data(constants.FOREGROUND_ROLE)) is not None
+                    ):
                         fg = role_fg
                     else:
                         fg = colors.text
                 painter.setPen(fg)
-                align = index.data(constants.ALIGNMENT_ROLE) or (
-                    constants.ALIGN_LEFT | constants.ALIGN_V_CENTER
-                )
+                align = _align_value(index.data(constants.ALIGNMENT_ROLE), _ALIGN_CELL)
                 elided = painter.fontMetrics().elidedText(
-                    text, constants.TextElideMode.ElideRight, text_rect.width()
+                    text, _ELIDE_RIGHT, text_rect.width()
                 )
-                painter.drawText(text_rect, int(align), elided)
+                painter.drawText(text_rect, align, elided)
 
         # Crisp accent inset border on the focused cell
         if has_focus:
@@ -162,8 +259,42 @@ class DataCellDelegate(widgets.StyledItemDelegate):
         painter.restore()
 
 
-class HeaderCellDelegate(widgets.StyledItemDelegate):
-    """Polished renderer for multi-level column and row header tables."""
+def _draw_grid_edges(painter: Any, rect: Any, right: gui.QColor, bottom: gui.QColor):
+    """Hairlines on the right and bottom edge of a cell (the views hide Qt's grid)."""
+    painter.fillRect(rect.right(), rect.top(), 1, rect.height(), right)
+    painter.fillRect(rect.left(), rect.bottom(), rect.width(), 1, bottom)
+
+
+class _FontCache:
+    """Weighted / italic variants of the view font, built once per base font."""
+
+    def __init__(self):
+        self._fonts: dict[tuple[str, str, bool], gui.QFont] = {}
+
+    def get(self, base: gui.QFont, weight: str | None, italic: bool = False) -> Any:
+        key = (base.key(), weight or "", italic)
+        if (font := self._fonts.get(key)) is None:
+            if len(self._fonts) > 32:  # the base font changed often: start over
+                self._fonts.clear()
+            font = gui.Font(base)
+            if weight is not None:
+                font.set_weight(weight)  # ty: ignore[invalid-argument-type]
+            font.setItalic(italic)
+            self._fonts[key] = font
+        return font
+
+
+_ALIGN_HEADER_H = constants.ALIGN_CENTER.value
+_ALIGN_HEADER_V = (constants.ALIGN_LEFT | constants.ALIGN_V_CENTER).value
+
+
+class HeaderCellDelegate(_PaletteColorsMixin, widgets.StyledItemDelegate):
+    """Renderer for the multi-level column and row header tables.
+
+    Outer MultiIndex levels get a slightly stronger surface, the leaf level a divider
+    edge towards the data table, the sorted leaf column a sort arrow and (optionally)
+    leaf column headers a palette-tinted dtype icon.
+    """
 
     def __init__(
         self,
@@ -176,14 +307,16 @@ class HeaderCellDelegate(widgets.StyledItemDelegate):
         show_dtype_icons: bool = False,
     ):
         super().__init__(parent=parent)
-        self._orientation = orientation
+        self._horizontal = orientation == constants.HORIZONTAL
         self._sort_state_getter = sort_state_getter
         self._kind_getter = kind_getter
         self._show_dtype_icons = show_dtype_icons
-        self._colors: ViewerColors | None = None
+        self._kind_icons = icons.KindIconCache()
+        self._fonts = _FontCache()
 
     def set_colors(self, colors: ViewerColors):
-        self._colors = colors
+        super().set_colors(colors)
+        self._kind_icons.clear()
 
     def paint(
         self,
@@ -191,10 +324,10 @@ class HeaderCellDelegate(widgets.StyledItemDelegate):
         option: Any,
         index: core.ModelIndex,
     ):
-        colors = self._colors or ViewerColors.from_palette(option.palette)
+        colors = self.colors_for(option.palette)
         rect = option.rect
-        is_selected = bool(option.state & widgets.QStyle.StateFlag.State_Selected)
-        is_horizontal = self._orientation == constants.HORIZONTAL
+        is_selected = option.state.value & _SELECTED
+        is_horizontal = self._horizontal
 
         model = index.model()
         is_leaf = True
@@ -212,7 +345,14 @@ class HeaderCellDelegate(widgets.StyledItemDelegate):
             bg = colors.header_outer_bg
         else:
             bg = colors.header_bg
-        painter.fillRect(rect.x(), rect.y(), rect.width(), rect.height(), bg)
+        painter.fillRect(rect, bg)
+        # Grid hairlines; the leaf level's edge towards the data table is a divider.
+        if is_horizontal:
+            bottom = colors.divider if is_leaf else colors.grid
+            _draw_grid_edges(painter, rect, colors.grid, bottom)
+        else:
+            right = colors.divider if is_leaf else colors.grid
+            _draw_grid_edges(painter, rect, right, colors.grid)
 
         # Accent edge on selected leaf header touching the data table
         if is_selected and is_leaf:
@@ -244,32 +384,27 @@ class HeaderCellDelegate(widgets.StyledItemDelegate):
         ):
             kind = self._kind_getter(index.column())
             if kind is not None:
-                icon = icons.icon_for_kind(kind, color=_hex(colors.muted_text))
-                icon_size = 13
-                iy = rect.top() + (rect.height() - icon_size) // 2
-                icon.paint(painter, rect.left() + left_pad, iy, icon_size, icon_size)
-                left_pad += icon_size + 5
+                icon = self._kind_icons.icon(kind, color=colors.muted_text.name())
+                size = HEADER_ICON_SIZE
+                iy = rect.top() + (rect.height() - size) // 2
+                icon.paint(painter, rect.left() + left_pad, iy, size, size)
+                left_pad += size + HEADER_ICON_GAP
 
         raw_text = index.data(constants.DISPLAY_ROLE)
         text = "" if raw_text is None else str(raw_text)
         text_rect = rect.adjusted(left_pad, 0, -right_pad, 0)
         if text and text_rect.width() > 0:
-            font: Any = gui.Font(option.font)
             if is_horizontal:
-                font.set_weight("demi_bold" if is_leaf else "medium")
-            elif not is_leaf:
-                font.set_weight("medium")
-            painter.setFont(font)
+                weight = "demi_bold" if is_leaf else "medium"
+            else:
+                weight = None if is_leaf else "medium"
+            painter.setFont(self._fonts.get(option.font, weight))
             painter.setPen(colors.header_fg)
-            align = (
-                constants.ALIGN_CENTER
-                if is_horizontal
-                else (constants.ALIGN_LEFT | constants.ALIGN_V_CENTER)
-            )
+            align = _ALIGN_HEADER_H if is_horizontal else _ALIGN_HEADER_V
             elided = painter.fontMetrics().elidedText(
-                text, constants.TextElideMode.ElideRight, text_rect.width()
+                text, _ELIDE_RIGHT, text_rect.width()
             )
-            painter.drawText(text_rect, int(align), elided)
+            painter.drawText(text_rect, align, elided)
 
         if sort_order is not None:
             _draw_sort_arrow(
@@ -283,15 +418,12 @@ class HeaderCellDelegate(widgets.StyledItemDelegate):
         painter.restore()
 
 
-class CornerCellDelegate(widgets.StyledItemDelegate):
-    """Renderer for the top-left level-name corner table in the 4-table viewer."""
+class CornerCellDelegate(_PaletteColorsMixin, widgets.StyledItemDelegate):
+    """Renderer for the top-left level-name corner table of the grid viewer."""
 
     def __init__(self, parent: core.QObject | None = None):
         super().__init__(parent=parent)
-        self._colors: ViewerColors | None = None
-
-    def set_colors(self, colors: ViewerColors):
-        self._colors = colors
+        self._fonts = _FontCache()
 
     def paint(
         self,
@@ -299,27 +431,31 @@ class CornerCellDelegate(widgets.StyledItemDelegate):
         option: Any,
         index: core.ModelIndex,
     ):
-        colors = self._colors or ViewerColors.from_palette(option.palette)
+        colors = self.colors_for(option.palette)
         rect = option.rect
 
         painter.save()
-        painter.fillRect(
-            rect.x(), rect.y(), rect.width(), rect.height(), colors.header_outer_bg
+        painter.fillRect(rect, colors.header_outer_bg)
+        model = index.model()
+        last_row = model is None or index.row() == model.rowCount() - 1
+        last_col = model is None or index.column() == model.columnCount() - 1
+        _draw_grid_edges(
+            painter,
+            rect,
+            colors.divider if last_col else colors.grid,
+            colors.divider if last_row else colors.grid,
         )
         raw_text = index.data(constants.DISPLAY_ROLE)
         text = "" if raw_text is None else str(raw_text)
         text_rect = rect.adjusted(HEADER_HPAD, 0, -HEADER_HPAD, 0)
         if text and text_rect.width() > 0:
-            font: Any = gui.Font(option.font)
-            font.setItalic(True)
-            font.set_weight("medium")
-            painter.setFont(font)
+            painter.setFont(self._fonts.get(option.font, "medium", italic=True))
             painter.setPen(colors.muted_text)
-            align = index.data(constants.ALIGNMENT_ROLE) or constants.ALIGN_CENTER
+            align = _align_value(index.data(constants.ALIGNMENT_ROLE), _ALIGN_HEADER_H)
             elided = painter.fontMetrics().elidedText(
-                text, constants.TextElideMode.ElideRight, text_rect.width()
+                text, _ELIDE_RIGHT, text_rect.width()
             )
-            painter.drawText(text_rect, int(align), elided)
+            painter.drawText(text_rect, align, elided)
         painter.restore()
 
 
@@ -351,118 +487,113 @@ def _draw_sort_arrow(
     painter.restore()
 
 
-def apply_composite_frame_style(widget: Any, colors: ViewerColors):
-    """Unified outer border & clean surface for multi-table composite viewers."""
-    widget.setAttribute(constants.WidgetAttribute.WA_StyledBackground, True)
-    widget.setStyleSheet(
-        f"QWidget#{widget.objectName()} {{"
-        f" background-color: {_hex(colors.header_outer_bg)};"
-        f" border: 1px solid {_hex(colors.divider)};"
-        "}"
-    )
+def inherits_style_sheet(widget: Any) -> bool:
+    """True if the application or an ancestor of `widget` sets a style sheet."""
+    app: Any = widgets.QApplication.instance()
+    if app is not None and app.styleSheet():
+        return True
+    parent = widget.parentWidget()
+    while parent is not None:
+        if parent.styleSheet():
+            return True
+        parent = parent.parentWidget()
+    return False
 
 
-def apply_data_table_style(view: Any, colors: ViewerColors):
-    """Frameless, low-contrast hairline grid style for the inner data table."""
+def style_table(view: Any, base: gui.QColor, alt: gui.QColor | None = None):
+    """Frameless table without Qt's grid (the delegates paint hairlines).
+
+    Colours go through the palette, not a style sheet: a style sheet would route all
+    painting of the view through QStyleSheetStyle. Only when an application / parent
+    style sheet (a theme) already does that, the view gets a small sheet that resets
+    the theme's table border and padding (the composite viewers align their tables
+    edge to edge) and keeps the palette colours.
+    """
     view.setFrameShape(widgets.QFrame.Shape.NoFrame)
-    view.setStyleSheet(
-        "QTableView {"
-        f" background-color: {_hex(colors.base)};"
-        f" alternate-background-color: {_hex(colors.alt_row)};"
-        f" gridline-color: {_hex(colors.grid)};"
-        " border: none;"
-        " outline: 0;"
-        "}"
-    )
+    view.setShowGrid(False)
+    palette: Any = gui.QPalette(view.palette())
+    role = gui.Palette.ColorRole
+    palette.setColor(role.Base, base)
+    palette.setColor(role.Window, base)
+    palette.setColor(role.AlternateBase, alt or base)
+    view.setPalette(palette)
+    sheet = ""
+    if inherits_style_sheet(view):
+        sheet = (
+            "QTableView {"
+            " border: none; padding: 0px; margin: 0px; outline: 0;"
+            f" background-color: {base.name()};"
+            f" alternate-background-color: {(alt or base).name()};"
+            "}"
+        )
+    if view.styleSheet() != sheet:
+        view.setStyleSheet(sheet)
 
 
-def apply_header_table_style(
-    view: Any,
-    colors: ViewerColors,
-    orientation: constants.Orientation,
-):
-    """Frameless header table style with a crisp divider edge touching the data table."""
-    view.setFrameShape(widgets.QFrame.Shape.NoFrame)
-    edge = (
-        f"border-bottom: 1px solid {_hex(colors.divider)};"
-        if orientation == constants.HORIZONTAL
-        else f"border-right: 1px solid {_hex(colors.divider)};"
-    )
-    view.setStyleSheet(
-        "QTableView {"
-        f" background-color: {_hex(colors.header_bg)};"
-        f" gridline-color: {_hex(colors.grid)};"
-        " border: none;"
-        f" {edge}"
-        " outline: 0;"
-        "}"
+def level_name_header_style(colors: ViewerColors) -> str:
+    """Style sheet for the native level-name `QHeaderView`s of the composite viewer.
+
+    Set on the header widget itself (not on the table), so only the header goes
+    through QStyleSheetStyle.
+    """
+    return (
         "QHeaderView::section {"
-        f" background-color: {_hex(colors.header_outer_bg)};"
-        f" color: {_hex(colors.muted_text)};"
+        f" background-color: {colors.header_outer_bg.name()};"
+        f" color: {colors.muted_text.name()};"
         " font-style: italic;"
         " padding: 2px 6px;"
         " border: none;"
-        f" border-right: 1px solid {_hex(colors.grid)};"
-        f" border-bottom: 1px solid {_hex(colors.grid)};"
+        f" border-right: 1px solid {colors.grid.name()};"
+        f" border-bottom: 1px solid {colors.grid.name()};"
         "}"
     )
 
 
-def apply_corner_table_style(view: Any, colors: ViewerColors):
-    """Frameless corner table style with crisp bottom & right divider edges."""
-    view.setFrameShape(widgets.QFrame.Shape.NoFrame)
-    view.setStyleSheet(
-        "QTableView {"
-        f" background-color: {_hex(colors.header_outer_bg)};"
-        f" gridline-color: {_hex(colors.grid)};"
-        " border: none;"
-        f" border-right: 1px solid {_hex(colors.divider)};"
-        f" border-bottom: 1px solid {_hex(colors.divider)};"
-        " outline: 0;"
-        "}"
-    )
-
-
-def apply_native_table_style(view: widgets.QTableView, colors: ViewerColors):
-    """Clean, modern stylesheet for the single-table viewer."""
-    view.setStyleSheet(
-        "QTableView {"
-        f" background-color: {_hex(colors.base)};"
-        f" alternate-background-color: {_hex(colors.alt_row)};"
-        f" gridline-color: {_hex(colors.grid)};"
-        f" border: 1px solid {_hex(colors.divider)};"
-        " outline: 0;"
-        "}"
+def native_header_style(colors: ViewerColors) -> str:
+    """Style sheet for the native `QHeaderView`s of the single-table viewer."""
+    return (
         "QHeaderView::section:horizontal {"
-        f" background-color: {_hex(colors.header_bg)};"
-        f" color: {_hex(colors.header_fg)};"
+        f" background-color: {colors.header_bg.name()};"
+        f" color: {colors.header_fg.name()};"
         " font-weight: 600;"
         " padding: 4px 8px;"
         " border: none;"
-        f" border-right: 1px solid {_hex(colors.grid)};"
-        f" border-bottom: 1px solid {_hex(colors.divider)};"
+        f" border-right: 1px solid {colors.grid.name()};"
+        f" border-bottom: 1px solid {colors.divider.name()};"
         "}"
         "QHeaderView::section:horizontal:hover {"
-        f" background-color: {_hex(colors.header_outer_bg)};"
+        f" background-color: {colors.header_outer_bg.name()};"
         "}"
         "QHeaderView::section:horizontal:checked {"
-        f" background-color: {_hex(colors.header_selected_bg)};"
+        f" background-color: {colors.header_selected_bg.name()};"
         "}"
         "QHeaderView::section:vertical {"
-        f" background-color: {_hex(colors.header_bg)};"
-        f" color: {_hex(colors.header_fg)};"
+        f" background-color: {colors.header_bg.name()};"
+        f" color: {colors.header_fg.name()};"
         " padding: 2px 8px;"
         " border: none;"
-        f" border-bottom: 1px solid {_hex(colors.grid)};"
-        f" border-right: 1px solid {_hex(colors.divider)};"
+        f" border-bottom: 1px solid {colors.grid.name()};"
+        f" border-right: 1px solid {colors.divider.name()};"
         "}"
         "QHeaderView::section:vertical:checked {"
-        f" background-color: {_hex(colors.header_selected_bg)};"
-        "}"
-        "QTableCornerButton::section {"
-        f" background-color: {_hex(colors.header_outer_bg)};"
-        " border: none;"
-        f" border-right: 1px solid {_hex(colors.divider)};"
-        f" border-bottom: 1px solid {_hex(colors.divider)};"
+        f" background-color: {colors.header_selected_bg.name()};"
         "}"
     )
+
+
+def restyle_view(view: Any, colors: ViewerColors):
+    """Hand `colors` to the view's delegate (if it is one of ours) and repaint."""
+    delegate = view.itemDelegate()
+    if isinstance(delegate, _PaletteColorsMixin):
+        delegate.set_colors(colors)
+    view.viewport().update()
+
+
+def paint_frame(widget: Any, colors: ViewerColors):
+    """Paint the composite viewers' surface and 1 px outer border (in paintEvent)."""
+    painter: Any = gui.QPainter(widget)
+    rect = widget.rect()
+    painter.fillRect(rect, colors.header_outer_bg)
+    painter.setPen(colors.divider)
+    painter.drawRect(rect.adjusted(0, 0, -1, -1))
+    painter.end()

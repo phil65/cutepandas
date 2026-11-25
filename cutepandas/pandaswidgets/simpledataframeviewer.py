@@ -21,9 +21,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 ROW_PADDING = 10
-MAX_COLUMN_WIDTH = 400
-AUTOSIZE_COLUMNS = 50
-AUTOSIZE_ROWS = 75
 
 
 class SimpleDataFrameViewer(SortableViewerMixin, widgets.TableView):
@@ -95,23 +92,29 @@ class SimpleDataFrameViewer(SortableViewerMixin, widgets.TableView):
         self._on_df_changed()
 
     def _apply_style(self):
-        if getattr(self, "_applying_style", False):
-            return
-        self._applying_style = True
-        try:
-            colors = _viewer_style.ViewerColors.from_palette(
-                widgets.QApplication.palette(self)
-            )
-            _viewer_style.apply_native_table_style(self, colors)
-            delegate = self.itemDelegate()
-            if isinstance(delegate, _viewer_style.DataCellDelegate):
-                delegate.set_colors(colors)
-        finally:
-            self._applying_style = False
+        """Derive the colours from the palette (light or dark theme).
+
+        Only the viewport and the header widgets get palettes / style sheets, so the
+        view's own palette keeps following the application's.
+        """
+        colors = _viewer_style.ViewerColors.from_palette(self.palette())
+        self.setShowGrid(False)  # the delegate paints hairlines
+        viewport = self.viewport()
+        palette: Any = gui.QPalette(viewport.palette())
+        palette.setColor(gui.Palette.ColorRole.Base, colors.base)
+        palette.setColor(gui.Palette.ColorRole.AlternateBase, colors.alt_row)
+        viewport.setPalette(palette)
+        header_style = _viewer_style.native_header_style(colors)
+        self.h_header.setStyleSheet(header_style)
+        self.v_header.setStyleSheet(header_style)
+        _viewer_style.restyle_view(self, colors)
 
     def changeEvent(self, event: core.QEvent):
         super().changeEvent(event)
-        if event.type() == core.QEvent.Type.PaletteChange:
+        if event.type() in {
+            core.QEvent.Type.PaletteChange,
+            core.QEvent.Type.StyleChange,  # e.g. an application style sheet (theme)
+        }:
             self._apply_style()
 
     @property
@@ -136,7 +139,7 @@ class SimpleDataFrameViewer(SortableViewerMixin, widgets.TableView):
             return
         row_height = self.fontMetrics().height() + ROW_PADDING
         self.v_header.setDefaultSectionSize(row_height)
-        for col in range(min(model.columnCount(), AUTOSIZE_COLUMNS)):
+        for col in range(min(model.columnCount(), _viewer_style.AUTOSIZE_COLUMNS)):
             self.auto_size_column(col)
 
     def _autosize_visible_columns(self, _value: int = 0):
@@ -163,25 +166,18 @@ class SimpleDataFrameViewer(SortableViewerMixin, widgets.TableView):
         model = self.model()
         if model is None or not 0 <= column_index < model.columnCount():
             return
-        header_text = str(
-            model.headerData(column_index, constants.HORIZONTAL, constants.DISPLAY_ROLE)
-            or ""
+        header_text = model.headerData(
+            column_index, constants.HORIZONTAL, constants.DISPLAY_ROLE
         )
-        header_font = gui.Font(self.h_header.font())
-        header_font.set_weight("demi_bold")
-        header_metrics = gui.FontMetrics(header_font)
-        header_extra = _viewer_style.HEADER_HPAD * 2 + _viewer_style.SORT_ARROW_SPACE
-        if self._dtype_icons:
-            header_extra += 22
-        width = header_metrics.horizontalAdvance(header_text) + header_extra
-
-        cell_metrics = self.fontMetrics()
-        cell_pad = _viewer_style.CELL_HPAD * 2 + 12
-        for row in range(min(model.rowCount(), AUTOSIZE_ROWS)):
-            text = str(model.data(model.index(row, column_index)) or "")
-            width = max(width, cell_metrics.horizontalAdvance(text) + cell_pad)
-
-        self.setColumnWidth(column_index, min(width, MAX_COLUMN_WIDTH))
+        rows = range(min(model.rowCount(), _viewer_style.SAMPLE_ROWS))
+        width = _viewer_style.fitted_column_width(
+            [str(header_text or "")],
+            self.h_header.font(),
+            (str(model.data(model.index(r, column_index)) or "") for r in rows),
+            self.fontMetrics(),
+            icon_space=_viewer_style.NATIVE_HEADER_ICON_SPACE if self._dtype_icons else 0,
+        )
+        self.setColumnWidth(column_index, width)
 
     # --- sorting ---
 

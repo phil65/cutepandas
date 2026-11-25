@@ -25,7 +25,6 @@ QWIDGETSIZE_MAX = (1 << 24) - 1
 ROW_PADDING = 10
 MAX_ROW_HEIGHT = 100
 MAX_SPAN_COUNT = 20_000
-SAMPLE_ROWS = 75
 
 
 def _pd_axis(df: Any, horizontal: bool) -> pd.Index | None:
@@ -233,6 +232,8 @@ class DataFrameViewer(SortableViewerMixin, widgets.Widget):
 
         # Set up layout
         self.layout_grid = self.set_layout("grid", margin=0, spacing=0)
+        # room for the 1 px outer border painted by paintEvent
+        self.layout_grid.setContentsMargins(1, 1, 1, 1)
         # Link scrollbars
         self.table_data.h_scrollbar.valueChanged.connect(
             self.table_columns.h_scrollbar.setValue
@@ -285,44 +286,31 @@ class DataFrameViewer(SortableViewerMixin, widgets.Widget):
         self._on_df_changed()
 
     def _apply_style(self):
-        if getattr(self, "_applying_style", False):
-            return
-        self._applying_style = True
-        try:
-            colors = _viewer_style.ViewerColors.from_palette(
-                widgets.QApplication.palette(self.table_data)
-            )
-            _viewer_style.apply_composite_frame_style(self, colors)
-            _viewer_style.apply_data_table_style(self.table_data, colors)
-            _viewer_style.apply_header_table_style(
-                self.table_columns, colors, constants.HORIZONTAL
-            )
-            _viewer_style.apply_header_table_style(
-                self.table_index, colors, constants.VERTICAL
-            )
-            data_delegate = self.table_data.itemDelegate()
-            if isinstance(data_delegate, _viewer_style.DataCellDelegate):
-                data_delegate.set_colors(colors)
-            for view in (self.table_columns, self.table_index):
-                delegate = view.itemDelegate()
-                if isinstance(delegate, _viewer_style.HeaderCellDelegate):
-                    delegate.set_colors(colors)
-            div = _viewer_style._hex(colors.divider)
-            bg = _viewer_style._hex(colors.header_outer_bg)
-            self._top_spacer.setStyleSheet(
-                f"QFrame {{ background-color: {bg}; border: none;"
-                f" border-bottom: 1px solid {div}; }}"
-            )
-            self._bottom_spacer.setStyleSheet(
-                f"QFrame {{ background-color: {bg}; border: none; }}"
-            )
-        finally:
-            self._applying_style = False
+        """Derive the colours from the viewer's palette (light or dark theme)."""
+        colors = _viewer_style.ViewerColors.from_palette(self.palette())
+        self._colors = colors
+        _viewer_style.style_table(self.table_data, colors.base, colors.alt_row)
+        _viewer_style.style_table(self.table_columns, colors.header_bg)
+        _viewer_style.style_table(self.table_index, colors.header_bg)
+        level_names = _viewer_style.level_name_header_style(colors)
+        self.table_columns.v_header.setStyleSheet(level_names)
+        self.table_index.h_header.setStyleSheet(level_names)
+        for view in (self.table_data, self.table_columns, self.table_index):
+            _viewer_style.restyle_view(view, colors)
+        self._top_spacer.set_colors(colors.header_outer_bg, colors.divider)
+        self._bottom_spacer.set_colors(colors.header_outer_bg)
+        self.update()
+
+    def paintEvent(self, event: gui.QPaintEvent):
+        _viewer_style.paint_frame(self, self._colors)
 
     def changeEvent(self, event: core.QEvent):
         super().changeEvent(event)
-        if event.type() == core.QEvent.Type.PaletteChange:
-            self._apply_style()
+        if event.type() in {
+            core.QEvent.Type.PaletteChange,
+            core.QEvent.Type.StyleChange,  # e.g. an application style sheet (theme)
+        }:
+            self._apply_style()  # sets the children's palettes only: no recursion
 
     @property
     def df(self) -> Any:
@@ -422,8 +410,9 @@ class DataFrameViewer(SortableViewerMixin, widgets.Widget):
 
     def _resize_columns(self):
         """Fit the first columns to header + first rows; one single-line row height."""
-        n = 50
-        columns = min(self.table_data.model().columnCount(), n)
+        columns = min(
+            self.table_data.model().columnCount(), _viewer_style.AUTOSIZE_COLUMNS
+        )
         for column_index in range(columns):
             self.auto_size_column(column_index)
         # Cells do not wrap, so a row is one line of text.
@@ -500,30 +489,17 @@ class DataFrameViewer(SortableViewerMixin, widgets.Widget):
         if col_model is None or data_model is None:
             return
 
-        header_font = gui.Font(self.table_columns.font())
-        header_font.set_weight("demi_bold")
-        header_metrics = gui.FontMetrics(header_font)
-        header_extra = _viewer_style.HEADER_HPAD * 2 + _viewer_style.SORT_ARROW_SPACE
-        if self._dtype_icons:
-            header_extra += 20
-
-        width = 60
-        for r in range(col_model.rowCount()):
-            txt = str(col_model.data(col_model.index(r, column_index)) or "")
-            width = max(width, header_metrics.horizontalAdvance(txt) + header_extra)
-
-        # Only check the first SAMPLE_ROWS rows for O(1) performance.
-        rows = min(data_model.rowCount(), SAMPLE_ROWS)
-        cell_metrics = self.table_data.fontMetrics()
-        cell_pad = _viewer_style.CELL_HPAD * 2 + 12
-        for i in range(rows):
-            mi = data_model.index(i, column_index)
-            text = str(data_model.data(mi) or "")
-            width = max(width, cell_metrics.horizontalAdvance(text) + cell_pad)
-
-        max_allowable_width = 400
-        width = min(width, max_allowable_width)
-
+        rows = range(min(data_model.rowCount(), _viewer_style.SAMPLE_ROWS))
+        width = _viewer_style.fitted_column_width(
+            (
+                str(col_model.data(col_model.index(r, column_index)) or "")
+                for r in range(col_model.rowCount())
+            ),
+            self.table_columns.font(),
+            (str(data_model.data(data_model.index(r, column_index)) or "") for r in rows),
+            self.table_data.fontMetrics(),
+            icon_space=_viewer_style.HEADER_ICON_SPACE if self._dtype_icons else 0,
+        )
         self.table_columns.setColumnWidth(column_index, width)
         self.table_data.setColumnWidth(column_index, width)
 
@@ -689,38 +665,21 @@ class HeaderView(custom_widgets.OrientedTableView):
                     ix2 = self.model().index(ix.row(), col)
                     self.setSelection(self.visualRect(ix2), SelectionFlag.Select)
 
-    # Fits columns to contents in O(1) time (bounded sample + last row for index width)
     def init_size(self):
+        """Fit the index level columns (bounded row sample: O(1) in the length).
+
+        The column header's widths follow the data columns (`auto_size_column`).
+        """
         model = self.model()
-        if model is None:
+        if model is None or self.is_horizontal():
             return
         metrics = self.fontMetrics()
-        pad = _viewer_style.HEADER_HPAD * 2 + 12
-        colcount = min(model.columnCount(), 50)
-        if self.is_horizontal():
-            min_size = 80
-            for col in range(colcount):
-                width = min_size
-                for row in range(model.rowCount()):
-                    txt = str(model.data(model.index(row, col)) or "")
-                    width = max(width, metrics.horizontalAdvance(txt) + pad)
-                self.setColumnWidth(col, width)
-                self.table.setColumnWidth(col, width)
-        else:
-            row_count = model.rowCount()
-            sample = list(range(min(row_count, SAMPLE_ROWS)))
-            if row_count > SAMPLE_ROWS:
-                sample.append(row_count - 1)  # fit widest trailing row number
-            for col in range(model.columnCount()):
-                hdr = str(
-                    model.headerData(col, constants.HORIZONTAL, constants.DISPLAY_ROLE)
-                    or ""
-                )
-                width = max(36, metrics.horizontalAdvance(hdr) + pad)
-                for row in sample:
-                    txt = str(model.data(model.index(row, col)) or "")
-                    width = max(width, metrics.horizontalAdvance(txt) + pad)
-                self.setColumnWidth(col, min(width, 400))
+        rows = _viewer_style.sample_rows(model.rowCount())
+        for col in range(model.columnCount()):
+            name = model.headerData(col, constants.HORIZONTAL, constants.DISPLAY_ROLE)
+            texts = [str(name or "")]
+            texts.extend(str(model.data(model.index(r, col)) or "") for r in rows)
+            self.setColumnWidth(col, _viewer_style.fitted_index_width(texts, metrics))
 
     def set_spans(self):
         """Merge adjacent equal header labels into one spanning cell per level."""
@@ -787,8 +746,7 @@ class HeaderView(custom_widgets.OrientedTableView):
         if self.is_horizontal():
             # Width of DataTableView
             width = self.table.sizeHint().width() + self.v_header.width()
-            # Height (+1 for the bottom divider border)
-            height = 2 * self.frameWidth() + 1
+            height = 2 * self.frameWidth()
             max_rows = min(100, self.model().rowCount())
             for i in range(max_rows):
                 height += self.rowHeight(i)
@@ -797,8 +755,7 @@ class HeaderView(custom_widgets.OrientedTableView):
         else:
             # Height of DataTableView
             height = self.table.sizeHint().height() + self.h_header.height()
-            # Width (+1 for the right divider border)
-            width = 2 * self.frameWidth() + 1
+            width = 2 * self.frameWidth()
             max_cols = min(100, self.model().columnCount())
             for i in range(max_cols):
                 width += self.columnWidth(i)
@@ -813,17 +770,44 @@ class HeaderView(custom_widgets.OrientedTableView):
             return core.Size(self.sizeHint().width(), 0)
 
 
-# This is a fixed size widget with a size that tracks some other widget
 class TrackingSpacer(widgets.Frame):
+    """Fixed-size filler whose size tracks another widget's width / height."""
+
     def __init__(self, ref_x=None, ref_y=None):
         super().__init__()
         self.ref_x = ref_x
         self.ref_y = ref_y
+        self._bg: gui.QColor | None = None
+        self._edge: gui.QColor | None = None
+        for ref in (ref_x, ref_y):
+            if ref is not None:
+                ref.installEventFilter(self)
+
+    def eventFilter(self, source: core.QObject, event: core.QEvent) -> bool:
+        # e.g. a theme's style sheet resizes the headers when they get polished
+        if event.type() == core.QEvent.Type.Resize:
+            self.updateGeometry()
+        return False
+
+    def set_colors(self, bg: gui.QColor, bottom_edge: gui.QColor | None = None):
+        self._bg = bg
+        self._edge = bottom_edge
+        self.update()
 
     def minimumSizeHint(self):
         width = self.ref_x.width() if self.ref_x else 0
         height = self.ref_y.height() if self.ref_y else 0
         return core.Size(width, height)
+
+    def paintEvent(self, event: gui.QPaintEvent):
+        if self._bg is None:
+            return
+        painter = gui.QPainter(self)
+        rect = self.rect()
+        painter.fillRect(rect, self._bg)
+        if self._edge is not None:
+            painter.fillRect(rect.left(), rect.bottom(), rect.width(), 1, self._edge)
+        painter.end()
 
 
 if __name__ == "__main__":

@@ -9,13 +9,16 @@ import pyarrow as pa
 import pytest
 
 from cutepandas import pandasmodels
+from cutepandas.frames import Kind
 from cutepandas.pandaswidgets import (
     DataFrameViewer,
     GridDataFrameViewer,
     SimpleDataFrameViewer,
     dataframeviewer,
 )
+from cutepandas.pandaswidgets._viewer_style import ViewerColors
 from cutepandas.pandaswidgets.sortcontroller import SortController
+from cutepandas.utils import icons
 
 
 pl = pytest.importorskip("polars")
@@ -463,3 +466,115 @@ def test_viewer_copy_to_clipboard_permutation(qtbot, viewer_cls):
     view.copy()
     text = gui.GuiApplication.clipboard().text()
     assert text.splitlines() == ["1\ta", "2\tb", "3\tc"]
+
+
+# --- palette / theme ---
+
+
+def dark_palette() -> gui.QPalette:
+    palette = gui.QPalette()
+    role = gui.QPalette.ColorRole
+    for r, color in [
+        (role.Window, "#202020"),
+        (role.WindowText, "#f0f0f0"),
+        (role.Base, "#181818"),
+        (role.Text, "#eeeeee"),
+        (role.Highlight, "#3070d0"),
+    ]:
+        palette.setColor(r, gui.QColor(color))
+    return palette
+
+
+def icon_color(icon) -> str:
+    """Colour of the most opaque pixel of a rendered icon."""
+    image = icon.pixmap(32, 32).toImage()
+    best = max(
+        (image.pixelColor(x, y) for x in range(32) for y in range(32)),
+        key=lambda c: c.alpha(),
+    )
+    return best.name()
+
+
+def test_kind_icon_cache_follows_app_palette(qapp):
+    original = gui.GuiApplication.palette()
+    cache = icons.KindIconCache()
+    try:
+        first = cache.icon(Kind.INTEGER)
+        assert cache.icon(Kind.INTEGER) is first  # cached
+        assert icon_color(first) == icons.default_icon_color()
+        gui.GuiApplication.setPalette(dark_palette())
+        dark = cache.icon(Kind.INTEGER)
+        assert dark is not first  # the palette changed: rebuilt
+        assert icons.default_icon_color() == icons.default_icon_color(dark_palette())
+        assert icon_color(dark) == icons.default_icon_color()
+        explicit = cache.icon(Kind.FLOAT, color="#ff0000")
+        assert cache.icon(Kind.FLOAT, color="#ff0000") is explicit
+        assert icon_color(explicit) == "#ff0000"
+    finally:
+        gui.GuiApplication.setPalette(original)
+
+
+def test_dataframe_model_icons_cached(qapp):
+    model = pandasmodels.DataFrameModel(pd.DataFrame({"a": [1]}), dtype_icons=True)
+    role = constants.DECORATION_ROLE
+    icon = model.headerData(0, constants.HORIZONTAL, role)
+    assert model.headerData(0, constants.HORIZONTAL, role) is icon
+
+
+def delegates(widget) -> list:
+    if isinstance(widget, SimpleDataFrameViewer):
+        return [widget.itemDelegate()]
+    views = [widget.table_data, column_header(widget), widget.table_index]
+    if isinstance(widget, GridDataFrameViewer):
+        views.append(widget.table_level)
+    return [view.itemDelegate() for view in views]
+
+
+def test_viewer_restyles_on_palette_change(qtbot, viewer_cls):
+    widget = viewer_cls(pd.DataFrame({"a": [1, 2]}))
+    qtbot.addWidget(widget)
+    light = ViewerColors.from_palette(widget.palette())
+    assert all(d._colors == light for d in delegates(widget))
+    widget.setPalette(dark_palette())
+    dark = ViewerColors.from_palette(widget.palette())
+    assert dark.base.name() == "#181818"
+    assert dark != light
+    assert all(d._colors == dark for d in delegates(widget))
+    data = data_view(widget)
+    viewport_base = data.viewport().palette().color(gui.QPalette.ColorRole.Base)
+    if isinstance(widget, SimpleDataFrameViewer):
+        assert viewport_base.name() == dark.base.name()
+    else:
+        assert data.palette().color(gui.QPalette.ColorRole.Base) == dark.base
+    # no style sheet on the views without an application / parent style sheet
+    assert data.styleSheet() == ""
+
+
+def test_viewer_header_icon_tint_follows_palette(qtbot):
+    widget = DataFrameViewer(pd.DataFrame({"a": [1, 2]}))
+    qtbot.addWidget(widget)
+    delegate = column_header(widget).itemDelegate()
+    widget.setPalette(dark_palette())
+    muted = delegate._colors.muted_text.name()
+    icon = delegate._kind_icons.icon(Kind.INTEGER, color=muted)
+    assert icon_color(icon) == muted
+
+
+def test_viewer_under_app_style_sheet(qtbot, qapp, viewer_cls):
+    """A theme's QTableView border / padding is reset on the composite tables."""
+    qapp.setStyleSheet("QTableView { border: 3px solid red; padding-top: 5px; }")
+    try:
+        widget = viewer_cls(pd.DataFrame({"a": [1, 2]}))
+        qtbot.addWidget(widget)
+        widget.show()
+        if isinstance(widget, SimpleDataFrameViewer):
+            assert widget.itemDelegate()._colors is not None
+            return
+        for view in (widget.table_data, column_header(widget), widget.table_index):
+            assert "border: none" in view.styleSheet()
+            assert view.frameWidth() == 0
+    finally:
+        qapp.setStyleSheet("")
+    qapp.processEvents()  # StyleChange: restyled without the app style sheet
+    if not isinstance(widget, SimpleDataFrameViewer):
+        assert widget.table_data.styleSheet() == ""
