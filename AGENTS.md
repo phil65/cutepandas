@@ -73,7 +73,7 @@ uv run ruff check .             # lint (ruff pinned in the `lint` group)
 uv run ruff format .            # format
 uv run ty check                 # type check (`cutepandas/` only); warnings fail too
 uv run deptry .                 # dependency hygiene
-uv run mkdocs-mknodes build     # docs (needs Python >= 3.13)
+uv run mknodes build            # docs (needs Python >= 3.13)
 uv build                        # sdist + wheel
 ```
 
@@ -97,10 +97,10 @@ commit messages (conventional commits).
 - A Qt binding is required at runtime: install with an extra (`cutepandas[pyside6]` or
   `cutepandas[pyqt6]`). Extras are ignored for DEP002 in `[tool.deptry]`.
 - `uv.lock` is gitignored.
-- The `docs` group's `mkdocs-mknodes` only installs on Python >= 3.13 (marker); CI tests
+- The `docs` group's `mknodes` only installs on Python >= 3.13 (marker); CI tests
   run with `--no-group docs`.
-- Docs are the mkdocs-mknodes default site: `README.md` is the index page; API pages are
-  generated. mkdocs-mknodes >= 2 builds with Zensical (not MkDocs); the generated API
+- Docs are the mknodes default site: `README.md` is the index page; API pages are
+  generated. mknodes builds with Zensical (not MkDocs); the generated API
   pages need `mkdocstrings[python]` (in the `docs` group), and the build writes a
   gitignored `mkdocs.generated.yml`. `docs/changelog.md` is written by commitizen (`cz bump`).
 - `Makefile` still references poetry and is outdated; prefer the commands above.
