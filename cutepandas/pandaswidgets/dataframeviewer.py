@@ -275,6 +275,7 @@ class DataFrameViewer(widgets.Widget):
         self._resize_columns()
         self.table_data.updateGeometry()
         self.table_columns.updateGeometry()
+        self.table_index.updateGeometry()  # its width follows the index labels
 
     def jump_to_column(self, col_num: int):
         """Make sure column at given index is visible.

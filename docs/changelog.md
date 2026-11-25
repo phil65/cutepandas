@@ -5,6 +5,8 @@
 - `DataFrameViewer` fits every column to its header and first rows (only the first
   column was fitted before) and uses one single-line row height (rows were measured
   with word wrap in 100 px columns: 40-55 px tall); data cells no longer wrap
+- the index header gets its width when a frame is set after the viewer was shown (it
+  stayed 2 px wide inside a layout)
 
 ## v0.6.1 (2026-11-25)
 

@@ -6,6 +6,7 @@ import pandas as pd
 from prettyqt import core, gui, widgets
 
 from cutepandas import pandaswidgets
+from cutepandas.pandasmodels import DataFrameHolder
 from cutepandas.qtframe.qtframe import QtFrame
 
 
@@ -153,3 +154,20 @@ def test_dataframeviewer_fits_columns_and_row_height(qtbot):
     # one line per row, not the height of text wrapped into a narrow column
     assert table.rowHeight(0) <= metrics.height() * 2
     assert viewer.table_index.rowHeight(0) == table.rowHeight(0)
+
+
+def test_dataframeviewer_index_header_after_set_df(qtbot):
+    """A frame set after the viewer is shown (inside a layout) gets a visible index."""
+    parent = widgets.QWidget()
+    qtbot.addWidget(parent)
+    layout = widgets.QVBoxLayout(parent)
+    holder = DataFrameHolder()
+    viewer = pandaswidgets.DataFrameViewer(holder)
+    layout.addWidget(viewer)
+    parent.resize(800, 400)
+    parent.show()
+    widgets.QApplication.processEvents()  # laid out while still empty
+    holder.df = pd.DataFrame({"a": range(10)})
+    qtbot.wait(50)
+    index = viewer.table_index
+    assert index.width() >= index.columnWidth(0) > 0
