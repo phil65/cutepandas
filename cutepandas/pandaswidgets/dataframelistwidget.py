@@ -42,8 +42,7 @@ class DataFrameListModel(itemmodels.ColumnTableModel):
     COLUMNS = [RowsColumn, ColumnsColumn, IndexDescriptionColumn]
 
     def __init__(self, dfs, parent=None):
-        # prettyqt annotates `columns` as instances, but it instantiates the classes.
-        super().__init__(dfs, self.COLUMNS, parent=parent)  # ty: ignore[invalid-argument-type]
+        super().__init__(dfs, self.COLUMNS, parent=parent)
 
 
 class DataFrameListWidget(widgets.TableView):
