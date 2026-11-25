@@ -218,10 +218,13 @@ class DataFrameViewer(widgets.Widget):
         self.layout_grid[3, 1] = TrackingSpacer(ref_x=self.table_columns.v_header)
         self.layout_grid[3, 2] = self.table_data.h_scrollbar
 
-        # These expand when the window is enlarged instead of having
-        # the grid squares spread out
-        self.layout_grid.setColumnStretch(4, 1)
-        self.layout_grid.setRowStretch(4, 1)
+        # The data table takes all extra space, so the viewer fills its parent
+        # (a small frame leaves empty table area instead of a shrunken widget).
+        self.layout_grid.setColumnStretch(2, 1)
+        self.layout_grid.setRowStretch(2, 1)
+        # Headers keep their content size: pin them to the data table's edges.
+        self.layout_grid.setAlignment(self.table_columns, constants.ALIGN_LEFT)
+        self.layout_grid.setAlignment(self.table_index, constants.ALIGN_TOP)
 
         # Connected after the models were created, so they are reset before
         # the header layout gets rebuilt.

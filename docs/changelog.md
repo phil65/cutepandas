@@ -1,3 +1,11 @@
+## v0.6.1 (2026-11-25)
+
+### Fix
+
+- `DataFrameViewer` fills its parent: the data table takes the extra space (it kept its
+  content size before, leaving an empty grid cell); the column / index headers stay
+  pinned to the table's top-left edge
+
 ## v0.6.0 (2026-11-25)
 
 ### Feat

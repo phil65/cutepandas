@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pandas as pd
-from prettyqt import core, gui
+from prettyqt import core, gui, widgets
 
 from cutepandas import pandaswidgets
 from cutepandas.qtframe.qtframe import QtFrame
@@ -116,3 +116,19 @@ def test_dataframeviewer_spans_unique_index(qtbot):
     widget = pandaswidgets.DataFrameViewer(pd.DataFrame({"v": range(1000)}))
     qtbot.addWidget(widget)
     assert widget.table_index.rowSpan(0, 0) == 1
+
+
+def test_dataframeviewer_fills_parent(qtbot):
+    """A small frame must not shrink the viewer to its content size."""
+    parent = widgets.Widget()
+    qtbot.addWidget(parent)
+    layout = parent.set_layout("vertical", margin=0)
+    viewer = pandaswidgets.DataFrameViewer(pd.DataFrame({"a": [1, 2]}))
+    layout.add(viewer)
+    parent.resize(900, 700)
+    parent.show()
+    qtbot.waitExposed(parent)
+    assert viewer.width() >= 890
+    # the data table (not an empty grid cell) takes the extra space
+    assert viewer.table_data.width() > 700
+    assert viewer.table_data.height() > 550
