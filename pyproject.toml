@@ -1,6 +1,6 @@
 [project]
 name = "cutepandas"
-version = "0.6.1"
+version = "0.6.2"
 description = "Qt item models, delegates and widgets for dataframes (pandas, polars, pyarrow)"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -79,7 +79,7 @@ build-backend = "uv_build"
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.6.1"
+version = "0.6.2"
 tag_format = "v$version"
 update_changelog_on_bump = true
 changelog_start_rev = "v0.1.0"
