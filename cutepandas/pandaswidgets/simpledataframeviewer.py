@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import threading
 from typing import TYPE_CHECKING, Any
 
 from prettyqt import constants, core, gui, widgets
@@ -11,6 +10,7 @@ from prettyqt import constants, core, gui, widgets
 from cutepandas import pandasmodels
 from cutepandas.pandasmodels import DataFrameHolder
 from cutepandas.pandaswidgets import _viewer_style
+from cutepandas.pandaswidgets.sortcontroller import SortableViewerMixin, SortController
 from cutepandas.utils import helpers
 
 
@@ -26,7 +26,7 @@ AUTOSIZE_COLUMNS = 50
 AUTOSIZE_ROWS = 75
 
 
-class SimpleDataFrameViewer(widgets.TableView):
+class SimpleDataFrameViewer(SortableViewerMixin, widgets.TableView):
     """Lightweight single-table viewer backed by `DataFrameModel`.
 
     Uses Qt's native horizontal and vertical `QHeaderView`s (joining MultiIndex
@@ -37,7 +37,6 @@ class SimpleDataFrameViewer(widgets.TableView):
 
     sort_requested = core.Signal(int, object)  # ty: ignore[missing-argument]
     sorting_changed = core.Signal(bool)  # ty: ignore[missing-argument]
-    _permutation_ready = core.Signal(int, object)  # ty: ignore[missing-argument]
 
     def __init__(
         self,
@@ -50,13 +49,8 @@ class SimpleDataFrameViewer(widgets.TableView):
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
-        self._sortable = sortable
         self._dtype_icons = dtype_icons
-        self._sort_state: tuple[int, bool] | None = None
-        self._sort_request = 0
-        self._sorting = False
         self._autosized_cols: set[int] = set()
-        self._permutation_ready.connect(self._on_permutation_ready)
 
         if isinstance(df, DataFrameHolder):
             self.holder = df
@@ -90,12 +84,14 @@ class SimpleDataFrameViewer(widgets.TableView):
             parent=self,
         )
         self.set_model(model)
+        self.sorter = SortController(model, sortable=sortable, parent=self)
+        self._connect_sorter()
+        self.sorter.sort_state_changed.connect(self._on_sort_state_changed)
         self.h_scrollbar.valueChanged.connect(self._autosize_visible_columns)
 
         self._apply_style()
 
         self.holder.changed.connect(self._on_df_changed)
-        self.holder.row_order_changed.connect(self._on_row_order_changed)
         self._on_df_changed()
 
     def _apply_style(self):
@@ -131,15 +127,8 @@ class SimpleDataFrameViewer(widgets.TableView):
         self.holder.df = df
 
     def _on_df_changed(self, origin: Any = None):
-        self._sort_state = None
         self._autosized_cols.clear()
-        self.h_header.setSortIndicatorShown(False)
         self._resize_columns_and_rows()
-
-    def _on_row_order_changed(self, origin: Any = None):
-        if self.holder.row_order is None:
-            self._sort_state = None
-            self.h_header.setSortIndicatorShown(False)
 
     def _resize_columns_and_rows(self):
         model = self.model()
@@ -197,93 +186,14 @@ class SimpleDataFrameViewer(widgets.TableView):
     # --- sorting ---
 
     def _on_header_clicked(self, column: int):
-        if self.df is None:
-            return
-        ascending = self._sort_state != (column, True)
-        order = constants.ASCENDING if ascending else constants.DESCENDING
-        self.sort_requested.emit(column, order)
-        if self._sortable:
-            self.sort_by(column, order)
+        self.sorter.request_sort(column)
 
-    def sort_by(self, column: int, order: constants.SortOrder = constants.ASCENDING):
-        """Sort by a column position (in the model's `sort_mode`)."""
-        model = self.get_model(skip_proxies=True)
-        if model.get_sort_mode() != "permutation":
-            model.sort(column, order)
-            self.set_sort_state(column, order)
-            return
-        self._sort_request += 1
-        request = self._sort_request
-        self._set_sorting(True)
-
-        def work():
-            try:
-                result = model.compute_sort_permutation(column, order)
-            except Exception as e:
-                result = e
-            self._permutation_ready.emit(request, result)
-
-        threading.Thread(target=work, name="cutepandas-sort", daemon=True).start()
-
-    def _on_permutation_ready(self, request: int, result: Any):
-        if request != self._sort_request:
-            return
-        self._set_sorting(False)
-        if isinstance(result, BaseException):
-            logger.error("Sorting failed", exc_info=result)
-            return
-        model = self.get_model(skip_proxies=True)
-        if result is not None and model.apply_sort_permutation(result):
-            order = constants.DESCENDING if result.descending else constants.ASCENDING
-            self.set_sort_state(result.column, order)
-
-    def cancel_sort(self):
-        self._sort_request += 1
-        self._set_sorting(False)
-
-    def is_sorting(self) -> bool:
-        return self._sorting
-
-    def _set_sorting(self, value: bool):
-        if value != self._sorting:
-            self._sorting = value
-            self.sorting_changed.emit(value)
-
-    def clear_sort(self):
-        self.cancel_sort()
-        self.get_model(skip_proxies=True).clear_sort()
-        self.set_sort_state(None)
-
-    def set_sort_state(
-        self, column: int | None, order: constants.SortOrder | None = None
-    ):
-        if column is None:
-            self._sort_state = None
+    def _on_sort_state_changed(self, state: tuple[int, constants.SortOrder] | None):
+        if state is None:
             self.h_header.setSortIndicatorShown(False)
         else:
-            ascending = order != constants.DESCENDING
-            self._sort_state = (column, ascending)
-            qt_order = constants.ASCENDING if ascending else constants.DESCENDING
-            self.h_header.setSortIndicator(column, qt_order)
+            self.h_header.setSortIndicator(*state)
             self.h_header.setSortIndicatorShown(True)
-
-    def get_sort_state(self) -> tuple[int, constants.SortOrder] | None:
-        if self._sort_state is None:
-            return None
-        column, ascending = self._sort_state
-        return column, constants.ASCENDING if ascending else constants.DESCENDING
-
-    def set_sortable(self, value: bool):
-        self._sortable = value
-
-    def is_sortable(self) -> bool:
-        return self._sortable
-
-    def set_sort_mode(self, mode: SortMode):
-        self.get_model(skip_proxies=True).set_sort_mode(mode)
-
-    def get_sort_mode(self) -> SortMode:
-        return self.get_model(skip_proxies=True).get_sort_mode()
 
     # --- clipboard ---
 

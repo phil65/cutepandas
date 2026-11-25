@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import threading
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -11,6 +10,7 @@ from prettyqt import constants, core, custom_widgets, gui, widgets
 from cutepandas import pandasmodels
 from cutepandas.pandasmodels import DataFrameHolder
 from cutepandas.pandaswidgets import _viewer_style
+from cutepandas.pandaswidgets.sortcontroller import SortableViewerMixin, SortController
 from cutepandas.utils import helpers
 
 
@@ -43,6 +43,40 @@ def _nlevels(df: Any, horizontal: bool) -> int:
 def _has_level_names(df: Any, horizontal: bool) -> bool:
     axis = _pd_axis(df, horizontal)
     return axis is not None and any(name is not None for name in axis.names)
+
+
+def axis_spans(df: Any, horizontal: bool) -> list[tuple[int, int, int]]:
+    """(level, start, length) of each run of equal adjacent labels of a pandas axis.
+
+    A run on an inner level also breaks wherever an outer level changes, so
+    ("a", 1), ("b", 1) doesn't merge the two 1s across the a/b boundary. NaN labels
+    count as equal. Empty for other backends, unique flat axes and when there would
+    be more than `MAX_SPAN_COUNT` spans (QTableView's span list degrades on tens of
+    thousands of spans).
+    """
+    axis = _pd_axis(df, horizontal)
+    if axis is None or len(axis) < 2:
+        return []
+    if isinstance(axis, pd.MultiIndex):
+        levels = [np.asarray(codes) for codes in axis.codes]
+    elif axis.is_unique:  # cached by pandas, O(1) for a RangeIndex
+        return []
+    else:
+        levels = [pd.factorize(axis, use_na_sentinel=False)[0]]
+    boundary = np.zeros(len(axis) - 1, dtype=bool)  # True: i and i+1 differ
+    spans: list[tuple[int, int, int]] = []
+    for level, codes in enumerate(levels):
+        boundary |= codes[:-1] != codes[1:]
+        starts = np.concatenate(([0], np.flatnonzero(boundary) + 1))
+        lengths = np.diff(np.append(starts, len(axis)))
+        mask = lengths > 1
+        if len(spans) + int(mask.sum()) > MAX_SPAN_COUNT:
+            return []
+        spans.extend(
+            (level, int(start), int(length))
+            for start, length in zip(starts[mask], lengths[mask], strict=True)
+        )
+    return spans
 
 
 class DataTableView(widgets.TableView):
@@ -125,7 +159,7 @@ class DataTableView(widgets.TableView):
         return core.Size(width, height)
 
 
-class DataFrameViewer(widgets.Widget):
+class DataFrameViewer(SortableViewerMixin, widgets.Widget):
     """Data table with synced column / index headers (MultiIndex spans for pandas).
 
     Clicking a column header emits `sort_requested(column, order)` (`order` is a
@@ -145,8 +179,6 @@ class DataFrameViewer(widgets.Widget):
 
     sort_requested = core.Signal(int, object)  # ty: ignore[missing-argument]
     sorting_changed = core.Signal(bool)  # ty: ignore[missing-argument]
-    # (request id, SortPermutation | BaseException | None) from the worker thread
-    _permutation_ready = core.Signal(int, object)  # ty: ignore[missing-argument]
 
     def __init__(
         self,
@@ -163,20 +195,18 @@ class DataFrameViewer(widgets.Widget):
             self.setObjectName("cutepandas_dataframe_viewer")
         # Indicates whether the widget has been shown yet. Set to True in showEvent.
         self._loaded = False
-        self._sortable = sortable
         self._dtype_icons = dtype_icons
-        self._sort_state: tuple[int, bool] | None = None
-        self._sort_request = 0
-        self._sorting = False
         self._autosized_cols: set[int] = set()
-        self._permutation_ready.connect(self._on_permutation_ready)
         if isinstance(df, DataFrameHolder):
             self.holder = df
         else:
             self.holder = DataFrameHolder(df, parent=self)
         # Set up DataFrame TableView and Model
         self.table_data = DataTableView(self.holder, parent=self)
-        self.table_data.get_model(skip_proxies=True).set_sort_mode(sort_mode)
+        data_model = self.table_data.get_model(skip_proxies=True)
+        data_model.set_sort_mode(sort_mode)
+        self.sorter = SortController(data_model, sortable=sortable, parent=self)
+        self._connect_sorter()
         self.set_size_policy("expanding", "expanding")
 
         self.table_data.selectionModel().selectionChanged.connect(
@@ -189,6 +219,9 @@ class DataFrameViewer(widgets.Widget):
             show_dtype_icons=dtype_icons,
         )
         self.table_columns.clicked.connect(self.on_clicked)
+        self.sorter.sort_state_changed.connect(
+            lambda _state: self.table_columns.viewport().update()
+        )
 
         self.table_index = HeaderView(orientation=constants.VERTICAL, parent=self)
         self.table_columns.selectionModel().selectionChanged.connect(
@@ -304,15 +337,12 @@ class DataFrameViewer(widgets.Widget):
         self.holder.df = df
 
     def _on_row_order_changed(self, origin=None):
-        if self.holder.row_order is None:
-            self._sort_state = None
         # Spans group adjacent equal labels: only meaningful in the frame's order.
         self.table_index.refresh(set_spans=self.holder.row_order is None)
 
     def _on_df_changed(self, origin=None):
         """Rebuild header spans and sizes for the holder's current frame."""
         df = self.df
-        self._sort_state = None
         self._autosized_cols.clear()
         self.table_columns.refresh()
         self.table_index.refresh()
@@ -376,106 +406,10 @@ class DataFrameViewer(widgets.Widget):
     def on_clicked(self, ix: core.QModelIndex):
         """Request a sort by the clicked leaf column; clicking again reverses."""
         col_model = self.table_columns.model()
-        if self.df is None or not ix.isValid() or col_model is None:
+        if not ix.isValid() or col_model is None:
             return
-        if ix.row() != col_model.rowCount() - 1:
-            return
-        col = ix.column()
-        ascending = self._sort_state != (col, True)
-        order = constants.ASCENDING if ascending else constants.DESCENDING
-        self.sort_requested.emit(col, order)
-        if self._sortable:
-            self.sort_by(col, order)
-
-    def sort_by(self, column: int, order: constants.SortOrder = constants.ASCENDING):
-        """Sort by a column position (in the model's `sort_mode`).
-
-        In permutation mode this returns right away; the order is computed in a
-        worker thread and applied later (see `sorting_changed`).
-        """
-        model = self.table_data.get_model(skip_proxies=True)
-        if model.get_sort_mode() != "permutation":
-            model.sort(column, order)
-            self.set_sort_state(column, order)  # after: a frame change resets it
-            return
-        self._sort_request += 1
-        request = self._sort_request
-        self._set_sorting(True)
-
-        def work():
-            try:
-                result = model.compute_sort_permutation(column, order)
-            except Exception as e:  # reported on the GUI thread
-                result = e
-            self._permutation_ready.emit(request, result)  # queued to the GUI thread
-
-        threading.Thread(target=work, name="cutepandas-sort", daemon=True).start()
-
-    def _on_permutation_ready(self, request: int, result: Any):
-        if request != self._sort_request:  # superseded or cancelled
-            return
-        self._set_sorting(False)
-        if isinstance(result, BaseException):
-            logger.error("Sorting failed", exc_info=result)
-            return
-        model = self.table_data.get_model(skip_proxies=True)
-        if result is not None and model.apply_sort_permutation(result):
-            order = constants.DESCENDING if result.descending else constants.ASCENDING
-            self.set_sort_state(result.column, order)
-
-    def cancel_sort(self):
-        """Drop a display-only sort that is still being computed."""
-        self._sort_request += 1
-        self._set_sorting(False)
-
-    def is_sorting(self) -> bool:
-        """True while a display-only sort order is computed."""
-        return self._sorting
-
-    def _set_sorting(self, value: bool):
-        if value != self._sorting:
-            self._sorting = value
-            self.sorting_changed.emit(value)
-
-    def clear_sort(self):
-        """Drop a display-only sort (permutation mode) and the sort state."""
-        self.cancel_sort()
-        self.table_data.get_model(skip_proxies=True).clear_sort()
-        self._sort_state = None
-        self.table_columns.viewport().update()
-
-    def set_sort_state(
-        self, column: int | None, order: constants.SortOrder | None = None
-    ):
-        """Remember the current sort (the next click on `column` reverses it).
-
-        Replacing the frame resets it; an application that sorts on
-        `sort_requested` and then sets the sorted frame restores it here.
-        """
-        if column is None:
-            self._sort_state = None
-        else:
-            self._sort_state = (column, order != constants.DESCENDING)
-        self.table_columns.viewport().update()
-
-    def get_sort_state(self) -> tuple[int, constants.SortOrder] | None:
-        """(column, order) of the current sort, None if unsorted."""
-        if self._sort_state is None:
-            return None
-        column, ascending = self._sort_state
-        return column, constants.ASCENDING if ascending else constants.DESCENDING
-
-    def set_sortable(self, value: bool):
-        self._sortable = value
-
-    def is_sortable(self) -> bool:
-        return self._sortable
-
-    def set_sort_mode(self, mode: SortMode):
-        self.table_data.get_model(skip_proxies=True).set_sort_mode(mode)
-
-    def get_sort_mode(self) -> SortMode:
-        return self.table_data.get_model(skip_proxies=True).get_sort_mode()
+        if ix.row() == col_model.rowCount() - 1:
+            self.sorter.request_sort(ix.column())
 
     def showEvent(self, event: gui.QShowEvent):
         """Initialize column and row sizes on the first time the widget is shown."""
@@ -788,37 +722,11 @@ class HeaderView(custom_widgets.OrientedTableView):
                     width = max(width, metrics.horizontalAdvance(txt) + pad)
                 self.setColumnWidth(col, min(width, 400))
 
-    # This sets spans to group together adjacent cells with the same values
     def set_spans(self):
-        """Merge adjacent equal header labels into one spanning cell per level.
-
-        A span on an inner level also breaks wherever an outer level changes, so
-        ("a", 1), ("b", 1) doesn't merge the two 1s across the a/b boundary.
-        """
+        """Merge adjacent equal header labels into one spanning cell per level."""
         df = self.get_model(skip_proxies=True).df
-        index = _pd_axis(df, self.is_horizontal())
-        if index is None or len(index) < 2:
-            return
-        if isinstance(index, pd.MultiIndex):
-            levels = [np.asarray(codes) for codes in index.codes]
-        elif index.is_unique:  # cached by pandas, O(1) for a RangeIndex
-            return
-        else:
-            levels = [pd.factorize(index, use_na_sentinel=False)[0]]
-        boundary = np.zeros(len(index) - 1, dtype=bool)  # True: i and i+1 differ
-        span_count = 0
-        for level, codes in enumerate(levels):
-            boundary |= codes[:-1] != codes[1:]
-            starts = np.concatenate(([0], np.flatnonzero(boundary) + 1))
-            lengths = np.diff(np.append(starts, len(index)))
-            mask = lengths > 1
-            span_count += int(mask.sum())
-            if span_count > MAX_SPAN_COUNT:
-                # QTableView's internal span list degrades on tens of thousands of spans.
-                self.clearSpans()
-                return
-            for start, length in zip(starts[mask], lengths[mask]):
-                self.set_section_span(level, int(start), int(length))
+        for level, start, length in axis_spans(df, self.is_horizontal()):
+            self.set_section_span(level, start, length)
 
     def eventFilter(self, source: core.QObject, event: core.QEvent):
         if not isinstance(event, gui.QMouseEvent):

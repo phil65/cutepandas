@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import threading
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -16,11 +15,12 @@ from cutepandas.pandasmodels.dataframeholder import DataFrameHolderMixin
 from cutepandas.pandaswidgets import _viewer_style
 from cutepandas.pandaswidgets.dataframeviewer import (
     MAX_ROW_HEIGHT,
-    MAX_SPAN_COUNT,
     ROW_PADDING,
     DataTableView,
     _pd_axis,
+    axis_spans,
 )
+from cutepandas.pandaswidgets.sortcontroller import SortableViewerMixin, SortController
 
 
 if TYPE_CHECKING:
@@ -99,42 +99,17 @@ class CornerLevelModel(DataFrameHolderMixin, core.AbstractTableModel):
         return None
 
 
-def _apply_axis_spans(
-    view: widgets.QTableView,
-    df: Any,
-    *,
-    horizontal: bool,
-):
-    """Merge adjacent equal MultiIndex labels into spanning cells."""
+def _apply_axis_spans(view: widgets.QTableView, df: Any, *, horizontal: bool):
+    """Merge adjacent equal (Multi)Index labels into spanning cells."""
     view.clearSpans()
-    axis = _pd_axis(df, horizontal)
-    if axis is None or len(axis) < 2:
-        return
-    if isinstance(axis, pd.MultiIndex):
-        levels = [np.asarray(codes) for codes in axis.codes]
-    elif axis.is_unique:
-        return
-    else:
-        levels = [pd.factorize(axis, use_na_sentinel=False)[0]]
-    boundary = np.zeros(len(axis) - 1, dtype=bool)
-    span_count = 0
-    for level, codes in enumerate(levels):
-        boundary |= codes[:-1] != codes[1:]
-        starts = np.concatenate(([0], np.flatnonzero(boundary) + 1))
-        lengths = np.diff(np.append(starts, len(axis)))
-        mask = lengths > 1
-        span_count += int(mask.sum())
-        if span_count > MAX_SPAN_COUNT:
-            view.clearSpans()
-            return
-        for start, length in zip(starts[mask], lengths[mask]):
-            if horizontal:
-                view.setSpan(level, int(start), 1, int(length))
-            else:
-                view.setSpan(int(start), level, int(length), 1)
+    for level, start, length in axis_spans(df, horizontal):
+        if horizontal:
+            view.setSpan(level, start, 1, length)
+        else:
+            view.setSpan(start, level, length, 1)
 
 
-class GridDataFrameViewer(widgets.Widget):
+class GridDataFrameViewer(SortableViewerMixin, widgets.Widget):
     """Four-table 2x2 grid viewer with flush corner, column header, index, and data.
 
     Layout:
@@ -150,7 +125,6 @@ class GridDataFrameViewer(widgets.Widget):
 
     sort_requested = core.Signal(int, object)  # ty: ignore[missing-argument]
     sorting_changed = core.Signal(bool)  # ty: ignore[missing-argument]
-    _permutation_ready = core.Signal(int, object)  # ty: ignore[missing-argument]
 
     def __init__(
         self,
@@ -165,11 +139,7 @@ class GridDataFrameViewer(widgets.Widget):
         super().__init__(parent=parent, **kwargs)
         if not self.objectName():
             self.setObjectName("cutepandas_grid_dataframe_viewer")
-        self._sortable = sortable
         self._dtype_icons = dtype_icons
-        self._sort_state: tuple[int, bool] | None = None
-        self._sort_request = 0
-        self._sorting = False
         self._syncing_selection = False
         self._autosized_cols: set[int] = set()
         self._resizing_col: int | None = None
@@ -178,7 +148,6 @@ class GridDataFrameViewer(widgets.Widget):
         self._resizing_row: int | None = None
         self._resize_start_y = 0
         self._resize_initial_h = 0
-        self._permutation_ready.connect(self._on_permutation_ready)
 
         if isinstance(df, DataFrameHolder):
             self.holder = df
@@ -189,7 +158,10 @@ class GridDataFrameViewer(widgets.Widget):
 
         # 1. Data table (bottom-right)
         self.table_data = DataTableView(self.holder, parent=self)
-        self.table_data.get_model(skip_proxies=True).set_sort_mode(sort_mode)
+        data_model = self.table_data.get_model(skip_proxies=True)
+        data_model.set_sort_mode(sort_mode)
+        self.sorter = SortController(data_model, sortable=sortable, parent=self)
+        self._connect_sorter()
 
         # 2. Corner level table (top-left)
         self.table_level = widgets.TableView(parent=self)
@@ -236,6 +208,9 @@ class GridDataFrameViewer(widgets.Widget):
             pandasmodels.HorizontalHeaderModel(self.holder, parent=self.table_header)
         )
         self.table_header.clicked.connect(self._on_header_clicked)
+        self.sorter.sort_state_changed.connect(
+            lambda _state: self.table_header.viewport().update()
+        )
 
         # 4. Row index table (bottom-left)
         self.table_index = widgets.TableView(parent=self)
@@ -347,16 +322,13 @@ class GridDataFrameViewer(widgets.Widget):
         self.holder.df = df
 
     def _on_row_order_changed(self, origin: Any = None):
-        if self.holder.row_order is None:
-            self._sort_state = None
-            self.table_header.viewport().update()
+        # Spans group adjacent equal labels: only meaningful in the frame's order.
         if self.holder.row_order is None:
             _apply_axis_spans(self.table_index, self.df, horizontal=False)
         else:
             self.table_index.clearSpans()
 
     def _on_df_changed(self, origin: Any = None):
-        self._sort_state = None
         self._autosized_cols.clear()
         _apply_axis_spans(self.table_header, self.df, horizontal=True)
         _apply_axis_spans(self.table_index, self.df, horizontal=False)
@@ -414,6 +386,8 @@ class GridDataFrameViewer(widgets.Widget):
                 w = max(w, metrics.horizontalAdvance(txt) + pad)
             w = min(w, MAX_COLUMN_WIDTH)
             self.table_index.setColumnWidth(col, w)
+            # Qt may round up to its minimum section size: use the applied width.
+            w = self.table_index.columnWidth(col)
             self.table_level.setColumnWidth(col, w)
             idx_total_w += w
 
@@ -613,91 +587,10 @@ class GridDataFrameViewer(widgets.Widget):
 
     def _on_header_clicked(self, ix: core.QModelIndex):
         header_model = self.table_header.model()
-        if self.df is None or not ix.isValid() or header_model is None:
+        if not ix.isValid() or header_model is None:
             return
-        if ix.row() != header_model.rowCount() - 1:
-            return
-        col = ix.column()
-        ascending = self._sort_state != (col, True)
-        order = constants.ASCENDING if ascending else constants.DESCENDING
-        self.sort_requested.emit(col, order)
-        if self._sortable:
-            self.sort_by(col, order)
-
-    def sort_by(self, column: int, order: constants.SortOrder = constants.ASCENDING):
-        model = self.table_data.get_model(skip_proxies=True)
-        if model.get_sort_mode() != "permutation":
-            model.sort(column, order)
-            self.set_sort_state(column, order)
-            return
-        self._sort_request += 1
-        request = self._sort_request
-        self._set_sorting(True)
-
-        def work():
-            try:
-                result = model.compute_sort_permutation(column, order)
-            except Exception as e:
-                result = e
-            self._permutation_ready.emit(request, result)
-
-        threading.Thread(target=work, name="cutepandas-sort", daemon=True).start()
-
-    def _on_permutation_ready(self, request: int, result: Any):
-        if request != self._sort_request:
-            return
-        self._set_sorting(False)
-        if isinstance(result, BaseException):
-            logger.error("Sorting failed", exc_info=result)
-            return
-        model = self.table_data.get_model(skip_proxies=True)
-        if result is not None and model.apply_sort_permutation(result):
-            order = constants.DESCENDING if result.descending else constants.ASCENDING
-            self.set_sort_state(result.column, order)
-
-    def cancel_sort(self):
-        self._sort_request += 1
-        self._set_sorting(False)
-
-    def is_sorting(self) -> bool:
-        return self._sorting
-
-    def _set_sorting(self, value: bool):
-        if value != self._sorting:
-            self._sorting = value
-            self.sorting_changed.emit(value)
-
-    def clear_sort(self):
-        self.cancel_sort()
-        self.table_data.get_model(skip_proxies=True).clear_sort()
-        self.set_sort_state(None)
-
-    def set_sort_state(
-        self, column: int | None, order: constants.SortOrder | None = None
-    ):
-        if column is None:
-            self._sort_state = None
-        else:
-            self._sort_state = (column, order != constants.DESCENDING)
-        self.table_header.viewport().update()
-
-    def get_sort_state(self) -> tuple[int, constants.SortOrder] | None:
-        if self._sort_state is None:
-            return None
-        column, ascending = self._sort_state
-        return column, constants.ASCENDING if ascending else constants.DESCENDING
-
-    def set_sortable(self, value: bool):
-        self._sortable = value
-
-    def is_sortable(self) -> bool:
-        return self._sortable
-
-    def set_sort_mode(self, mode: SortMode):
-        self.table_data.get_model(skip_proxies=True).set_sort_mode(mode)
-
-    def get_sort_mode(self) -> SortMode:
-        return self.table_data.get_model(skip_proxies=True).get_sort_mode()
+        if ix.row() == header_model.rowCount() - 1:
+            self.sorter.request_sort(ix.column())
 
 
 if __name__ == "__main__":
