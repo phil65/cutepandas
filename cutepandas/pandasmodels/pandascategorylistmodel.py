@@ -24,9 +24,13 @@ class PandasCategoryListModel(CategoryModel):
     MIME_TYPE = "mime_categories"
 
     def __init__(
-        self, df: pd.DataFrame | DataFrameHolder | None = None, col=None, parent=None
+        self,
+        df: pd.DataFrame | DataFrameHolder | None = None,
+        col=None,
+        parent=None,
+        **kwargs,
     ):
-        super().__init__(df, col, parent=parent)
+        super().__init__(df, col, parent=parent, **kwargs)
 
     @property
     def series(self):

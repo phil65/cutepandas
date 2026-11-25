@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from prettyqt import constants, core, widgets
 
@@ -11,10 +11,13 @@ from cutepandas.frames import ColumnInfo, ColumnStats, FrameSource, as_source, f
 from cutepandas.pandasmodels.dataframeholder import DataFrameHolder
 from cutepandas.pandasmodels.dataframemodel import DataFrameModel
 from cutepandas.utils import icons
+from cutepandas.utils.i18n import N_, TranslatableHeaderMixin, TranslateMixin
 
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    from cutepandas.utils.i18n import Translate
 
 
 def _fmt(value: Any) -> str:
@@ -25,13 +28,21 @@ def _fmt(value: Any) -> str:
     return str(value)
 
 
-class TopValuesModel(core.AbstractTableModel):
+class TopValuesModel(TranslatableHeaderMixin, core.AbstractTableModel):
     """Most frequent values of a column: value, count and share of all rows."""
 
-    HEADER = ("Value", "Count", "Share")
+    HEADER = [N_("Value"), N_("Count"), N_("Share")]
 
-    def __init__(self, top: Sequence[tuple[Any, int]] = (), total: int = 0, **kwargs):
+    def __init__(
+        self,
+        top: Sequence[tuple[Any, int]] = (),
+        total: int = 0,
+        *,
+        translate: Translate | None = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
+        self._translate = translate
         self._top = list(top)
         self._total = total
         self._max = max((count for _, count in self._top), default=0)
@@ -41,16 +52,6 @@ class TopValuesModel(core.AbstractTableModel):
 
     def columnCount(self, parent: core.ModelIndex | None = None) -> int:
         return 0 if parent is not None and parent.isValid() else len(self.HEADER)
-
-    def headerData(
-        self,
-        section: int,
-        orientation: constants.Orientation,
-        role: constants.ItemDataRole = constants.DISPLAY_ROLE,
-    ):
-        if orientation == constants.HORIZONTAL and role == constants.DISPLAY_ROLE:
-            return self.HEADER[section]
-        return None
 
     def data(
         self,
@@ -76,7 +77,7 @@ class TopValuesModel(core.AbstractTableModel):
         return None
 
 
-class ColumnProfileWidget(widgets.Widget):
+class ColumnProfileWidget(TranslateMixin, widgets.Widget):
     """Basic statistics and the most frequent values of one column of any frame.
 
     Shows dtype, row / null / unique counts, min / max / mean / std and the top values
@@ -85,12 +86,33 @@ class ColumnProfileWidget(widgets.Widget):
     `set_column()` computes the statistics right away (`FrameSource.describe`, a full
     column scan). For large frames compute them in a worker thread and pass the
     result to `set_stats()`, which must run on the GUI thread.
+
+    The field labels (`FIELDS`) and the top values header go through `translate`
+    (`str -> str`, e.g. gettext); `set_translate()` / `retranslate()` switch the
+    language at runtime (see `cutepandas.utils.i18n`).
     """
 
-    FIELDS = ("Rows", "Nulls", "Unique", "Min", "Max", "Mean", "Std")
+    FIELDS: ClassVar = (
+        N_("Rows"),
+        N_("Nulls"),
+        N_("Unique"),
+        N_("Min"),
+        N_("Max"),
+        N_("Mean"),
+        N_("Std"),
+    )
 
-    def __init__(self, df: Any = None, column: Any = None, *, top: int = 10, **kwargs):
+    def __init__(
+        self,
+        df: Any = None,
+        column: Any = None,
+        *,
+        top: int = 10,
+        translate: Translate | None = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
+        self._translate = translate
         self.top = top
         layout = self.set_layout("vertical", margin=4)
         self.title = widgets.Label()
@@ -98,25 +120,37 @@ class ColumnProfileWidget(widgets.Widget):
         layout.add(self.title)
         form = widgets.FormLayout()
         self.value_labels: dict[str, widgets.Label] = {}
+        self.field_labels: dict[str, widgets.Label] = {}
         for name in self.FIELDS:
             label = widgets.Label()
             label.set_text_interaction("by_mouse")
             self.value_labels[name] = label
-            form.addRow(f"{name}:", label)
+            self.field_labels[name] = widgets.Label()
+            form.addRow(self.field_labels[name], label)
         layout.add(form)
         self.top_table = widgets.TableView(selection_behavior="rows")
         self.top_table.v_header.hide()
         self.top_table.set_delegate(ValueColorDelegate(mode="bar"), column=2)
         layout.add(self.top_table)
+        self.retranslate()
         self.clear()
         if df is not None and column is not None:
             self.set_column(df, column)
+
+    def retranslate(self):
+        """Re-show the labels with the current `translate` callable."""
+        for name, label in self.field_labels.items():
+            label.set_text(f"{self._tr(name)}:")
+        if isinstance(model := self.top_table.model(), TopValuesModel):
+            model.set_translate(self._translate)
 
     def clear(self):
         self.title.set_text("")
         for label in self.value_labels.values():
             label.set_text("")
-        self.top_table.set_model(TopValuesModel(parent=self.top_table))
+        self.top_table.set_model(
+            TopValuesModel(translate=self._translate, parent=self.top_table)
+        )
 
     def set_column(self, df: Any, column: Any):
         """Profile a column (position or label) of a frame, source or holder."""
@@ -154,6 +188,8 @@ class ColumnProfileWidget(widgets.Widget):
         for name, text in values.items():
             self.value_labels[name].set_text(text)
         old = self.top_table.model()
-        self.top_table.set_model(TopValuesModel(stats.top, stats.count, parent=self))
+        self.top_table.set_model(
+            TopValuesModel(stats.top, stats.count, translate=self._translate, parent=self)
+        )
         if old is not None:
             old.deleteLater()

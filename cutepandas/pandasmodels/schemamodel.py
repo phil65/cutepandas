@@ -3,24 +3,36 @@
 from __future__ import annotations
 
 import enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from prettyqt import constants, core, itemmodels
 
 from cutepandas.frames import ColumnInfo
 from cutepandas.pandasmodels.dataframeholder import DataFrameHolderMixin
 from cutepandas.utils import icons
+from cutepandas.utils.i18n import N_, TranslatableHeaderMixin
 
 
-class SchemaModel(DataFrameHolderMixin, itemmodels.ModelMixin, core.AbstractTableModel):
+if TYPE_CHECKING:
+    from cutepandas.utils.i18n import Translate
+
+
+class SchemaModel(
+    TranslatableHeaderMixin,
+    DataFrameHolderMixin,
+    itemmodels.ModelMixin,
+    core.AbstractTableModel,
+):
     """One row per column of a frame (any backend), read-only.
 
     Null counts and sizes are computed on first display of a row and cached until the
     frame changes (a null count scans the column; polars and pyarrow keep it in
     metadata). Sort it with a `SortFilterProxyModel` on `SORT_ROLE`.
+
+    Labels (`HEADER`, tooltips) go through `translate` (see `cutepandas.utils.i18n`).
     """
 
-    HEADER = ["Name", "Type", "Nulls", "Size"]
+    HEADER = [N_("Name"), N_("Type"), N_("Nulls"), N_("Size")]
 
     class Roles(enum.IntEnum):
         """Role names."""
@@ -30,8 +42,9 @@ class SchemaModel(DataFrameHolderMixin, itemmodels.ModelMixin, core.AbstractTabl
         KindRole = constants.USER_ROLE + 4557
         ColumnInfoRole = constants.USER_ROLE + 4560
 
-    def __init__(self, df: Any = None, **kwargs):
+    def __init__(self, df: Any = None, *, translate: Translate | None = None, **kwargs):
         super().__init__(**kwargs)
+        self._translate = translate
         self._null_counts: dict[int, int] = {}
         self._sizes: dict[int, int] = {}
         self._init_holder(df)
@@ -101,8 +114,9 @@ class SchemaModel(DataFrameHolderMixin, itemmodels.ModelMixin, core.AbstractTabl
                 return icons.icon_for_kind(info.kind)
             case constants.TOOLTIP_ROLE, _:
                 return (
-                    f"<b>{info.label}</b><br>Type: {info.dtype} ({info.kind.value})"
-                    f"<br>Nulls: {self.null_count(row)}"
+                    f"<b>{info.label}</b><br>{self._tr(N_('Type'))}: {info.dtype}"
+                    f" ({info.kind.value})<br>{self._tr(N_('Nulls'))}: "
+                    f"{self.null_count(row)}"
                 )
             case self.Roles.DTypeRole, _:
                 return info.native_dtype

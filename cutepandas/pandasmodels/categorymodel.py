@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from prettyqt import constants, core, iconprovider, itemmodels
 
 from cutepandas.constants import iconnames
 from cutepandas.frames import format_name
 from cutepandas.pandasmodels.dataframeholder import DataFrameHolderMixin
+from cutepandas.utils.i18n import N_, TranslatableHeaderMixin
 
 
-class CategoryModel(DataFrameHolderMixin, itemmodels.ModelMixin, core.AbstractTableModel):
+if TYPE_CHECKING:
+    from cutepandas.utils.i18n import Translate
+
+
+class CategoryModel(
+    TranslatableHeaderMixin,
+    DataFrameHolderMixin,
+    itemmodels.ModelMixin,
+    core.AbstractTableModel,
+):
     """One row per category of a column, with its code and number of rows, read-only.
 
     Works for pandas `category` and dictionary-encoded `pd.ArrowDtype` columns, polars
@@ -20,11 +30,22 @@ class CategoryModel(DataFrameHolderMixin, itemmodels.ModelMixin, core.AbstractTa
     once per frame (one `value_counts` scan).
     """
 
-    HEADER = ["Name", "Code", "Count"]
+    HEADER = [N_("Name"), N_("Code"), N_("Count")]
 
-    def __init__(self, df: Any = None, col: Any = None, **kwargs):
-        """Show the categories of column `col` (a label)."""
+    def __init__(
+        self,
+        df: Any = None,
+        col: Any = None,
+        *,
+        translate: Translate | None = None,
+        **kwargs,
+    ):
+        """Show the categories of column `col` (a label).
+
+        `translate` maps the English labels (header, tooltip) to the shown text.
+        """
         super().__init__(**kwargs)
+        self._translate = translate
         self.col = col
         self._categories: list[Any] | None = None
         self._counts: dict[Any, int] = {}
@@ -100,5 +121,6 @@ class CategoryModel(DataFrameHolderMixin, itemmodels.ModelMixin, core.AbstractTa
             case constants.NAME_ROLE | constants.USER_ROLE, _:
                 return category
             case constants.TOOLTIP_ROLE, _:
-                return f"<b>{category}</b><br>Items: {self.count(category)}"
+                items = self._tr(N_("Items"))
+                return f"<b>{category}</b><br>{items}: {self.count(category)}"
         return None

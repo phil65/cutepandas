@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -10,6 +10,11 @@ from prettyqt.utils import helpers
 
 from cutepandas.pandasmodels.dataframeholder import DataFrameHolder, DataFrameHolderMixin
 from cutepandas.pandasmodels.schemamodel import SchemaModel
+from cutepandas.utils.i18n import N_, TranslatableHeaderMixin
+
+
+if TYPE_CHECKING:
+    from cutepandas.utils.i18n import Translate
 
 
 logger = logging.getLogger(__name__)
@@ -163,33 +168,49 @@ class PandasColumnListModel(SchemaModel):
 
 
 def label_for_index(index: pd.Index) -> str:
+    """English label of the index type (a msgid, see `cutepandas.utils.i18n`)."""
     match index:
         case pd.RangeIndex():
-            return "Range"
+            return N_("Range")
         case pd.DatetimeIndex():
-            return "Datetime"
+            return N_("Datetime")
         case pd.CategoricalIndex():
-            return "Categorical"
+            return N_("Categorical")
         case pd.IntervalIndex():
-            return "Interval"
+            return N_("Interval")
         case pd.TimedeltaIndex():
-            return "Timedelta"
+            return N_("Timedelta")
         case pd.MultiIndex():
-            return "Multi-index"
+            return N_("Multi-index")
         case pd.PeriodIndex():
-            return "Period"
+            return N_("Period")
         case _:
-            return "Regular"
+            return N_("Regular")
 
 
 class PandasIndexListModel(
-    DataFrameHolderMixin, itemmodels.ModelMixin, core.AbstractTableModel
+    TranslatableHeaderMixin,
+    DataFrameHolderMixin,
+    itemmodels.ModelMixin,
+    core.AbstractTableModel,
 ):
-    HEADER = ["Name", "Index type", "Monotonic"]
+    """Index levels of a pandas frame: name, index type, monotonic (editable).
+
+    Labels go through `translate` (see `cutepandas.utils.i18n`).
+    """
+
+    HEADER = [N_("Name"), N_("Index type"), N_("Monotonic")]
     MIME_TYPE = "mime_indexes"
 
-    def __init__(self, ds: pd.DataFrame | DataFrameHolder | None = None, **kwargs):
+    def __init__(
+        self,
+        ds: pd.DataFrame | DataFrameHolder | None = None,
+        *,
+        translate: Translate | None = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
+        self._translate = translate
         self._init_holder(ds)
 
     def setData(
@@ -266,23 +287,24 @@ class PandasIndexListModel(
             case constants.TOOLTIP_ROLE, _:
                 index = self.get_index(index.row())
                 return (
-                    f"<b>{index.name}</b><br>{'Contains NaNs'}: {index.hasnans}<br>"
+                    f"<b>{index.name}</b><br>{self._tr(N_('Contains NaNs'))}: "
+                    f"{index.hasnans}<br>"
                     # f"{_('Monotonic')}: {index.is_monotonic}"
                 )
 
             case constants.DISPLAY_ROLE | constants.EDIT_ROLE, 0:
                 index_name = self.df.index.names[index.row()]
-                return index_name or "[Unnamed]"
+                return index_name or self._tr(N_("[Unnamed]"))
 
             case constants.DISPLAY_ROLE | constants.EDIT_ROLE, 1:
-                return label_for_index(self.get_index(index.row()))
+                return self._tr(label_for_index(self.get_index(index.row())))
 
             case constants.DISPLAY_ROLE | constants.EDIT_ROLE, 2:
                 index = self.get_index(index.row())
                 if index.is_monotonic_increasing:
-                    return "Increasing"
+                    return self._tr(N_("Increasing"))
                 elif index.is_monotonic_decreasing:
-                    return "Decreasing"
+                    return self._tr(N_("Decreasing"))
 
             case constants.USER_ROLE, _:
                 name = self.df.index.names[index.row()]
