@@ -54,6 +54,45 @@ table.show()
 app.exec()
 ```
 
+## Choosing a viewer
+
+Three viewer widgets share the same `DataFrameModel`, cell delegate, sort behaviour
+(`sortable`, `sort_mode`, `sort_requested`, `sorting_changed`, see [Sorting](#sorting))
+and `DataFrameHolder` sharing; they differ in how they lay out the headers.
+
+| | `DataFrameViewer` | `GridDataFrameViewer` | `SimpleDataFrameViewer` |
+| --- | --- | --- | --- |
+| Structure | data table + column / index header tables kept in sync | 2 x 2 grid: level-name corner, column header, index, data | one `QTableView` with native headers |
+| MultiIndex (pandas) | one header row / index column per level, equal neighbours merged into spans | same spans | levels joined (`"a \| x"`) in one header row / column |
+| Level names | strips beside / above the headers, only when the levels are named | corner table, always flush with both headers | none |
+| Header sizes | follow the labels | fixed per frame (rows of equal height) | native |
+| Resizing | drag header edges (columns, rows), double-click fits | drag header edges (columns, rows), double-click fits | native handles, double-click fits |
+| Sort indicator | painted arrow on the leaf header | painted arrow on the leaf header | native indicator |
+
+pyarrow and polars frames have one header row and row numbers in every viewer. More than
+`MAX_SPAN_COUNT` (20,000) spans on an axis switch the spans off (Qt's span list gets slow);
+a display-only sort switches the index spans off while it is active.
+
+All three paint through palette-derived colours (light and dark themes, restyled on a
+palette or style change) without per-widget style sheets. Measured with 10M rows x 6
+columns in a 1600 x 900 window (offscreen, median of 40 random jumps, each fetching and
+painting the viewport; polars / pandas with a 2-level MultiIndex on both axes):
+
+| | `DataFrameViewer` | `GridDataFrameViewer` | `SimpleDataFrameViewer` |
+| --- | --- | --- | --- |
+| jump: fetch + paint | 8.8 / 8.1 ms | 8.9 / 9.6 ms | 8.1 / 13.0 ms |
+| jump, permutation-sorted | 9.0 / 9.6 ms | 8.5 / 10.0 ms | 10.1 / 8.6 ms |
+| repaint (cached) | 4.8 / 4.9 ms | 4.9 / 4.3 ms | 5.1 / 4.9 ms |
+
+Which one:
+
+- `DataFrameViewer`: the default (also inside `DataFrameWidget`); MultiIndex frames
+  where unnamed levels should take no space.
+- `GridDataFrameViewer`: MultiIndex rows and columns with level names, which the corner
+  shows aligned with both headers.
+- `SimpleDataFrameViewer`: flat frames (or pyarrow / polars), or where a single
+  `QTableView` with native, style-following headers fits better.
+
 ## Backends: `FrameSource`
 
 `DataFrameModel` never touches a frame directly. It reads through a `FrameSource`
@@ -104,8 +143,9 @@ first paint scans each numeric column once for its range (0.04-0.4 s on 10M rows
 
 ### Sorting
 
-A header click in `DataFrameViewer` emits `sort_requested(column, order)` (a
-`Qt.SortOrder`; the same column again reverses). What happens next:
+A header click (the leaf level of a MultiIndex) in any of the viewers emits
+`sort_requested(column, order)` (a `Qt.SortOrder`; the same column again reverses).
+What happens next:
 
 - `sortable=False`: nothing else. The application sorts under its own control (e.g.
   within a memory budget, or as a step of a pipeline), shows the result with
@@ -122,7 +162,9 @@ A header click in `DataFrameViewer` emits `sort_requested(column, order)` (a
   the frame's order; row labels follow the order (MultiIndex spans are off while
   sorted).
 
-The building blocks are public: `DataFrameModel.compute_sort_permutation(column,
+The viewers share this logic through a `SortController` (one per `DataFrameModel`,
+`cutepandas.pandaswidgets.sortcontroller`), which a custom view can use as well. The
+building blocks are public: `DataFrameModel.compute_sort_permutation(column,
 order)` (any thread) returns a `SortPermutation`, `apply_sort_permutation()` (GUI
 thread) applies it or returns False if it is stale, `source_row(row)` maps a model row
 to a frame row. Sort orders are stable with nulls last; pandas uses NumPy's stable
@@ -174,13 +216,14 @@ There is no module-level mutable state.
   a `DataFrame.eval` expression).
 - **Delegates**: `DTypeDelegate` (pick a dtype from a combo box with dtype icons),
   `ValueColorDelegate` (data bar or heat map from `NormalizedRole`).
-- **Widgets**: `DataFrameViewer` (data and header tables kept in sync, spans for
-  MultiIndex), `ColumnProfileWidget` (dtype, counts, min / max / mean / std, top values
+- **Widgets**: `DataFrameViewer`, `GridDataFrameViewer` and `SimpleDataFrameViewer`
+  (see [Choosing a viewer](#choosing-a-viewer)), `ColumnProfileWidget` (dtype, counts, min / max / mean / std, top values
   with share bars), `DataFrameWidget` (viewer with docks for index, columns,
   categories, column profile and `df.attrs`), `DataFrameListWidget` and
   `DataFrameManagerWidget` for several DataFrames.
 - **Icons**: `cutepandas.utils.icons.icon_for_dtype` / `icon_for_kind` for pandas,
-  pyarrow and polars dtypes.
+  pyarrow and polars dtypes, tinted to the palette; `KindIconCache` caches them for
+  views that paint them often.
 
 ## Development
 

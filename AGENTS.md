@@ -50,7 +50,21 @@ Flat package layout (no `src/`): the package lives in `cutepandas/`.
 - `cutepandas/pandaswidgets/`: widgets (exported in `__init__.py`).
   - `dataframeviewer.py`: `DataFrameViewer`, a composite of data table + column header +
     index header (`HeaderView`, a prettyqt `OrientedTableView`) kept in sync on
-    scroll/resize/selection; supports MultiIndex spans (pandas), any backend.
+    scroll/resize/selection; supports MultiIndex spans (pandas, `axis_spans()`), any
+    backend.
+  - `gridviewer.py`: `GridDataFrameViewer`, a 2 x 2 grid (`CornerLevelModel` with the
+    level names, column header, index, data).
+  - `simpledataframeviewer.py`: `SimpleDataFrameViewer`, one `QTableView` with native
+    headers (MultiIndex levels joined).
+  - `sortcontroller.py`: `SortController` (header-click sorting of one
+    `DataFrameModel`: copy / permutation mode, worker, stale drop, sort state) and
+    `SortableViewerMixin` (the viewers' sort API). All three viewers use it.
+  - `_viewer_style.py`: `ViewerColors` (from the palette), `DataCellDelegate`,
+    `HeaderCellDelegate`, `CornerCellDelegate`, sizing constants / helpers. Styling
+    goes through palettes and delegates, not style sheets (QStyleSheetStyle slows
+    painting); only under an app / parent style sheet do the tables get a small reset
+    sheet. Delegates paint per cell: no enum flag operations or extra `data()` calls
+    there.
   - `columnprofilewidget.py`: `ColumnProfileWidget` (stats + top values), `TopValuesModel`.
   - `dataframewidget.py`: `DataFrameWidget` (main window: viewer plus dock widgets for
     index list, column list, categories, column profile and `df.attrs`).
@@ -78,8 +92,9 @@ in-place exception (other `DataFrameModel`s on the same holder keep stale cache 
 Sorting: `DataFrameModel(sort_mode="copy")` replaces the frame by a sorted copy;
 `sort_mode="permutation"` stores a row order (`DataFrameHolder.row_order`, cleared when
 the frame is replaced) that `DataFrameModel` / `VerticalHeaderModel` read through.
-`DataFrameViewer(sortable=False)` only emits `sort_requested`; in permutation mode the
-viewer computes the order in a worker thread (latest request wins, stale results are
+`DataFrameViewer(sortable=False)` (likewise the other viewers, via `SortController`)
+only emits `sort_requested`; in permutation mode the controller computes the order in a
+worker thread (latest request wins, stale results are
 dropped via the model's data generation).
 
 New fixed English labels: mark them with `N_` and show them via `self._tr(...)`.
@@ -96,7 +111,9 @@ module-level mutable state.
 | Backend adapters, dtype kinds | `cutepandas/frames/` |
 | Value formatting | `cutepandas/frames/formatters.py` |
 | Fast filtering | `cutepandas/pandasmodels/pandasindexfilterproxymodel.py` |
-| MultiIndex header rendering, synced scrolling | `cutepandas/pandaswidgets/dataframeviewer.py` |
+| MultiIndex header rendering, synced scrolling | `cutepandas/pandaswidgets/dataframeviewer.py`, `gridviewer.py` |
+| Viewer colours, cell / header painting | `cutepandas/pandaswidgets/_viewer_style.py` |
+| Header-click sorting | `cutepandas/pandaswidgets/sortcontroller.py` |
 | Explorer window with docks | `cutepandas/pandaswidgets/dataframewidget.py` |
 | Dtype icons / delegates | `cutepandas/utils/icons.py`, `cutepandas/delegates/` |
 | Tests and fixtures | `tests/`, `tests/conftest.py` |

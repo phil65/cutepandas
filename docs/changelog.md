@@ -1,3 +1,30 @@
+## v0.7.0 (2026-11-25)
+
+### Feat
+
+- `GridDataFrameViewer`: a 2 x 2 grid viewer (level-name corner, column header, index,
+  data) with MultiIndex spans, drag-resizable header columns / rows
+- `SimpleDataFrameViewer`: a single `QTableView` with native headers (MultiIndex levels
+  joined), dtype icons and the native sort indicator
+- `SortController` / `SortableViewerMixin`: header-click sorting shared by all three
+  viewers (copy / permutation mode, latest-wins worker, `sortable=False`)
+- palette-aware viewer styling (`ViewerColors`, cell / header delegates): follows light
+  and dark palettes and restyles on a palette or style change; dtype icons in the
+  column headers, tinted to the palette (`KindIconCache`); a muted placeholder for nulls
+- `DataFrameViewer` fits columns lazily as they scroll into view (bounded row sample)
+- `DataFrameModel`'s vertical header shows the index labels (pandas)
+
+### Fix
+
+- sorting only from the leaf row of a MultiIndex column header
+- the level-name headers stay aligned under an application style sheet (e.g. the
+  prettyqt dark theme)
+
+### Perf
+
+- no per-widget style sheets (QStyleSheetStyle); fewer `data()` calls and no enum flag
+  operations per painted cell; dtype icons cached instead of rebuilt per paint
+
 ## v0.6.2 (2026-11-25)
 
 ### Fix
