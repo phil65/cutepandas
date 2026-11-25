@@ -11,7 +11,11 @@ import pandas as pd
 from pandas.api import types as ptypes
 import pyarrow as pa
 
-from cutepandas.frames.arrowsource import kind_for_arrow_type
+from cutepandas.frames.arrowsource import (
+    arrow_argsort,
+    kind_for_arrow_type,
+    take_rows,
+)
 from cutepandas.frames.source import ColumnChunk, ColumnInfo, ColumnStats, Kind
 
 
@@ -42,6 +46,33 @@ def kind_for_pandas_dtype(dtype: Any) -> Kind:
     return Kind.OBJECT
 
 
+def _is_arrow_backed(dtype: Any) -> bool:
+    return isinstance(dtype, pd.ArrowDtype) or (
+        isinstance(dtype, pd.StringDtype) and dtype.storage == "pyarrow"
+    )
+
+
+def numpy_argsort(values: np.ndarray, descending: bool = False) -> np.ndarray:
+    """Stable argsort of a NumPy array (numbers, bools, datetimes), NaN / NaT last."""
+    if not descending:
+        return np.argsort(values, kind="stable")  # NumPy sorts NaN / NaT last
+    # Descending and stable: sort the reversed array ascending and reverse the
+    # result (ties end up in their original order), then move the nulls (now in
+    # front) to the end.
+    n = len(values)
+    positions = (n - 1) - np.argsort(values[::-1], kind="stable")[::-1]
+    match values.dtype.kind:
+        case "f" | "c":
+            nulls = int(np.isnan(values).sum())
+        case "m" | "M":
+            nulls = int(np.isnat(values).sum())
+        case _:
+            nulls = 0
+    if nulls:
+        positions = np.concatenate((positions[nulls:], positions[:nulls]))
+    return positions.astype(np.intp, copy=False)
+
+
 def _python(value: Any) -> Any:
     """NumPy scalars to builtins (pandas results of min / max / mean)."""
     if isinstance(value, np.generic):
@@ -53,12 +84,20 @@ def _python(value: Any) -> Any:
     return value
 
 
+def _chunk(series: pd.Series) -> ColumnChunk:
+    nulls = series.isna().to_numpy(dtype=bool)
+    values = series.tolist()
+    if nulls.any():
+        values = [None if n else v for v, n in zip(values, nulls)]
+    return ColumnChunk(values, nulls)
+
+
 class PandasSource:
     """Source over a pandas DataFrame (a Series is shown as a one-column frame).
 
     Supports every pandas dtype, incl. pyarrow-backed ones (`string[pyarrow]`,
-    `pd.ArrowDtype`). Implements the optional `SortableSource` and `EditableSource`
-    hooks: `set_value` writes in place (`DataFrame.iat`).
+    `pd.ArrowDtype`). Implements the optional `SortableSource`, `PermutableSource` and
+    `EditableSource` hooks: `set_value` writes in place (`DataFrame.iat`).
     """
 
     backend = "pandas"
@@ -86,14 +125,17 @@ class PandasSource:
 
     def fetch(self, start: int, stop: int, columns: Sequence[int]) -> list[ColumnChunk]:
         window = self._df.iloc[start:stop]  # a view (copy-on-write)
+        return [_chunk(window.iloc[:, j]) for j in columns]
+
+    def fetch_rows(self, rows: np.ndarray, columns: Sequence[int]) -> list[ColumnChunk]:
         chunks = []
         for j in columns:
-            series = window.iloc[:, j]
-            nulls = series.isna().to_numpy(dtype=bool)
-            values = series.tolist()
-            if nulls.any():
-                values = [None if n else v for v, n in zip(values, nulls)]
-            chunks.append(ColumnChunk(values, nulls))
+            series = self._column(j)
+            if _is_arrow_backed(series.dtype):
+                # pandas' take on a chunked Arrow array concatenates all chunks
+                chunks.append(take_rows(pa.array(series.array), rows))
+            else:
+                chunks.append(_chunk(series.iloc[rows]))
         return chunks
 
     def fetch_arrow(self, start: int, stop: int, columns: Sequence[int]) -> pa.Table:
@@ -168,18 +210,28 @@ class PandasSource:
             top=self.value_counts(column, limit=top) if unique is not None else [],
         )
 
-    def sort(self, column: int, descending: bool = False) -> pd.DataFrame:
+    def argsort(self, column: int, descending: bool = False) -> np.ndarray:
         # By position (labels are ambiguous for duplicate columns) and stable, so
         # sorting by one column after another keeps the earlier order for ties.
         series = self._column(column)
+        dtype = series.dtype
+        if _is_arrow_backed(dtype):
+            # Arrow-backed (the default `str` dtype of pandas 3): Arrow's sort kernel,
+            # on the column's own buffers (no conversion).
+            return arrow_argsort(pa.array(series.array), descending)
+        if isinstance(dtype, np.dtype) and dtype.kind in "biufmM":
+            return numpy_argsort(series.to_numpy(copy=False), descending)
         if not descending:
-            positions = series.argsort(kind="stable").to_numpy()  # fastest; NaN last
+            positions = series.argsort(kind="stable").to_numpy()  # NaN last
         else:
             # argsort can't sort descending; this keeps ties stable and NaN last
             ranked = series.reset_index(drop=True)
             ranked = ranked.sort_values(ascending=False, kind="stable")
             positions = ranked.index.to_numpy()
-        return self._df.take(positions)
+        return np.asarray(positions, dtype=np.intp)
+
+    def sort(self, column: int, descending: bool = False) -> pd.DataFrame:
+        return self._df.take(self.argsort(column, descending))
 
     def set_value(self, row: int, column: int, value: Any) -> None:
         self._df.iat[row, column] = value

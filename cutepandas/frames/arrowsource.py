@@ -55,8 +55,49 @@ def _scalar(value: pa.Scalar) -> Any:
     return value.as_py() if value.is_valid else None
 
 
+def arrow_argsort(
+    array: pa.Array | pa.ChunkedArray, descending: bool = False
+) -> np.ndarray:
+    """Stable sort order of an Arrow array (Arrow's sort kernel), nulls last."""
+    order = "descending" if descending else "ascending"
+    indices = pc.array_sort_indices(array, order=order, null_placement="at_end")
+    return np.asarray(indices.to_numpy(zero_copy_only=False), dtype=np.intp)
+
+
+def _chunk(col: pa.ChunkedArray | pa.Array) -> ColumnChunk:
+    nulls = np.asarray(col.is_null().to_numpy(zero_copy_only=False), dtype=bool)
+    return ColumnChunk(col.to_pylist(), nulls)
+
+
+def take_rows(column: pa.ChunkedArray | pa.Array, rows: np.ndarray) -> ColumnChunk:
+    """Rows of an Arrow column at the given positions, in that order.
+
+    `ChunkedArray.take` concatenates the chunks first (a copy of the whole column,
+    slow for strings); this takes from each chunk that holds requested rows instead.
+    """
+    if isinstance(column, pa.ChunkedArray) and column.num_chunks == 1:
+        column = column.chunk(0)
+    if not isinstance(column, pa.ChunkedArray):
+        return _chunk(column.take(pa.array(rows, type=pa.int64())))
+    offsets = np.cumsum([0, *(len(c) for c in column.chunks)])
+    chunk_ids = np.searchsorted(offsets, rows, side="right") - 1
+    values: list[Any] = [None] * len(rows)
+    nulls = np.zeros(len(rows), dtype=bool)
+    for chunk_id in np.unique(chunk_ids).tolist():
+        targets = np.flatnonzero(chunk_ids == chunk_id)
+        local = pa.array(rows[targets] - offsets[chunk_id], type=pa.int64())
+        part = _chunk(column.chunk(chunk_id).take(local))
+        for target, value in zip(targets.tolist(), part.values):
+            values[target] = value
+        nulls[targets] = part.nulls
+    return ColumnChunk(values, nulls)
+
+
 class ArrowSource:
-    """Read-only source over a `pyarrow.Table` (or `RecordBatch`)."""
+    """Read-only source over a `pyarrow.Table` (or `RecordBatch`).
+
+    Implements the optional `SortableSource` and `PermutableSource` hooks.
+    """
 
     backend = "pyarrow"
 
@@ -82,12 +123,10 @@ class ArrowSource:
 
     def fetch(self, start: int, stop: int, columns: Sequence[int]) -> list[ColumnChunk]:
         length = max(0, stop - start)
-        chunks = []
-        for j in columns:
-            col = self._table.column(j).slice(start, length)
-            nulls = np.asarray(col.is_null().to_numpy(zero_copy_only=False), dtype=bool)
-            chunks.append(ColumnChunk(col.to_pylist(), nulls))
-        return chunks
+        return [_chunk(self._table.column(j).slice(start, length)) for j in columns]
+
+    def fetch_rows(self, rows: np.ndarray, columns: Sequence[int]) -> list[ColumnChunk]:
+        return [take_rows(self._table.column(j), rows) for j in columns]
 
     def fetch_arrow(self, start: int, stop: int, columns: Sequence[int]) -> pa.Table:
         return self._table.select(list(columns)).slice(start, max(0, stop - start))
@@ -160,9 +199,8 @@ class ArrowSource:
             top=self.value_counts(column, limit=top) if unique is not None else [],
         )
 
+    def argsort(self, column: int, descending: bool = False) -> np.ndarray:
+        return arrow_argsort(self._table.column(column), descending)
+
     def sort(self, column: int, descending: bool = False) -> pa.Table:
-        order = "descending" if descending else "ascending"
-        indices = pc.array_sort_indices(
-            self._table.column(column), order=order, null_placement="at_end"
-        )
-        return self._table.take(indices)
+        return self._table.take(self.argsort(column, descending))

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+import threading
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -10,6 +11,10 @@ from prettyqt import constants, core, custom_widgets, gui, widgets
 from cutepandas import pandasmodels
 from cutepandas.pandasmodels import DataFrameHolder
 from cutepandas.utils import helpers
+
+
+if TYPE_CHECKING:
+    from cutepandas.pandasmodels.dataframemodel import SortMode
 
 
 logger = logging.getLogger(__name__)
@@ -56,14 +61,14 @@ class DataTableView(widgets.TableView):
     def copy(self):
         """Copy the bounding box of the selected cells as tab-separated text."""
         indexes = self.selectionModel().selection().indexes()
-        source = self.get_model(skip_proxies=True).source
-        if not indexes or source is None:
+        if not indexes or self.get_model(skip_proxies=True).source is None:
             return
         rows = [ix.row() for ix in indexes]
         cols = range(
             min(ix.column() for ix in indexes), max(ix.column() for ix in indexes) + 1
         )
-        chunks = source.fetch(min(rows), max(rows) + 1, cols)
+        model = self.get_model(skip_proxies=True)
+        chunks = model.fetch_window(min(rows), max(rows) + 1, cols)
         lines = [
             "\t".join(
                 "" if chunk.values[i] is None else str(chunk.values[i])
@@ -116,18 +121,52 @@ class DataTableView(widgets.TableView):
 
 
 class DataFrameViewer(widgets.Widget):
-    def __init__(self, df: Any = None, **kwargs) -> None:
+    """Data table with synced column / index headers (MultiIndex spans for pandas).
+
+    Clicking a column header emits `sort_requested(column, order)` (`order` is a
+    `Qt.SortOrder`; clicking the same column again reverses it). With
+    `sortable=True` (default) the viewer then sorts itself, see `sort_mode`; with
+    `sortable=False` it only emits the signal, so an application can sort under its
+    own control (e.g. a memory budget) and call `set_df()` / `set_sort_state()`.
+
+    `sort_mode="copy"` (default) replaces the frame by a sorted copy (on the GUI
+    thread); `sort_mode="permutation"` sorts for display only (a row order of 8 bytes
+    per row in the holder, no frame copy). The order is computed in a worker thread:
+    `sorting_changed(True)` while it runs, `sorting_changed(False)` when it was
+    applied or dropped. Only the latest request is applied, and only if the frame
+    was not replaced or edited meanwhile; `cancel_sort()` drops a running one.
+    See `DataFrameModel`.
+    """
+
+    sort_requested = core.Signal(int, object)  # ty: ignore[missing-argument]
+    sorting_changed = core.Signal(bool)  # ty: ignore[missing-argument]
+    # (request id, SortPermutation | BaseException | None) from the worker thread
+    _permutation_ready = core.Signal(int, object)  # ty: ignore[missing-argument]
+
+    def __init__(
+        self,
+        df: Any = None,
+        *,
+        sortable: bool = True,
+        sort_mode: SortMode = "copy",
+        **kwargs,
+    ) -> None:
         """Pass a DataFrameHolder to share the frame with other models / widgets."""
         super().__init__(**kwargs)
         # Indicates whether the widget has been shown yet. Set to True in showEvent.
         self._loaded = False
+        self._sortable = sortable
         self._sort_state: tuple[int, bool] | None = None
+        self._sort_request = 0
+        self._sorting = False
+        self._permutation_ready.connect(self._on_permutation_ready)
         if isinstance(df, DataFrameHolder):
             self.holder = df
         else:
             self.holder = DataFrameHolder(df, parent=self)
         # Set up DataFrame TableView and Model
         self.table_data = DataTableView(self.holder, parent=self)
+        self.table_data.get_model(skip_proxies=True).set_sort_mode(sort_mode)
         self.set_size_policy("expanding", "expanding")
 
         self.table_data.selectionModel().selectionChanged.connect(
@@ -187,6 +226,7 @@ class DataFrameViewer(widgets.Widget):
         # Connected after the models were created, so they are reset before
         # the header layout gets rebuilt.
         self.holder.changed.connect(self._on_df_changed)
+        self.holder.row_order_changed.connect(self._on_row_order_changed)
         self._on_df_changed()
 
     @property
@@ -200,6 +240,12 @@ class DataFrameViewer(widgets.Widget):
     def set_df(self, df: Any):
         """Show another frame (in every model / widget sharing the holder)."""
         self.holder.df = df
+
+    def _on_row_order_changed(self, origin=None):
+        if self.holder.row_order is None:
+            self._sort_state = None
+        # Spans group adjacent equal labels: only meaningful in the frame's order.
+        self.table_index.refresh(set_spans=self.holder.row_order is None)
 
     def _on_df_changed(self, origin=None):
         """Rebuild header spans and sizes for the holder's current frame."""
@@ -264,14 +310,103 @@ class DataFrameViewer(widgets.Widget):
     #     self.table_index._on_selection_changed(selected, deselected)
 
     def on_clicked(self, ix: core.QModelIndex):
-        """Sort by the clicked column; clicking the same column again reverses."""
+        """Request a sort by the clicked column; the same column again reverses."""
         if self.df is None or not ix.isValid():
             return
         col = ix.column()
         ascending = self._sort_state != (col, True)
         order = constants.ASCENDING if ascending else constants.DESCENDING
-        self.table_data.model().sort(col, order)
-        self._sort_state = (col, ascending)  # set after: a frame change resets it
+        self.sort_requested.emit(col, order)
+        if self._sortable:
+            self.sort_by(col, order)
+
+    def sort_by(self, column: int, order: constants.SortOrder = constants.ASCENDING):
+        """Sort by a column position (in the model's `sort_mode`).
+
+        In permutation mode this returns right away; the order is computed in a
+        worker thread and applied later (see `sorting_changed`).
+        """
+        model = self.table_data.get_model(skip_proxies=True)
+        if model.get_sort_mode() != "permutation":
+            model.sort(column, order)
+            self.set_sort_state(column, order)  # after: a frame change resets it
+            return
+        self._sort_request += 1
+        request = self._sort_request
+        self._set_sorting(True)
+
+        def work():
+            try:
+                result = model.compute_sort_permutation(column, order)
+            except Exception as e:  # reported on the GUI thread
+                result = e
+            self._permutation_ready.emit(request, result)  # queued to the GUI thread
+
+        threading.Thread(target=work, name="cutepandas-sort", daemon=True).start()
+
+    def _on_permutation_ready(self, request: int, result: Any):
+        if request != self._sort_request:  # superseded or cancelled
+            return
+        self._set_sorting(False)
+        if isinstance(result, BaseException):
+            logger.error("Sorting failed", exc_info=result)
+            return
+        model = self.table_data.get_model(skip_proxies=True)
+        if result is not None and model.apply_sort_permutation(result):
+            order = constants.DESCENDING if result.descending else constants.ASCENDING
+            self.set_sort_state(result.column, order)
+
+    def cancel_sort(self):
+        """Drop a display-only sort that is still being computed."""
+        self._sort_request += 1
+        self._set_sorting(False)
+
+    def is_sorting(self) -> bool:
+        """True while a display-only sort order is computed."""
+        return self._sorting
+
+    def _set_sorting(self, value: bool):
+        if value != self._sorting:
+            self._sorting = value
+            self.sorting_changed.emit(value)
+
+    def clear_sort(self):
+        """Drop a display-only sort (permutation mode) and the sort state."""
+        self.cancel_sort()
+        self.table_data.get_model(skip_proxies=True).clear_sort()
+        self._sort_state = None
+
+    def set_sort_state(
+        self, column: int | None, order: constants.SortOrder | None = None
+    ):
+        """Remember the current sort (the next click on `column` reverses it).
+
+        Replacing the frame resets it; an application that sorts on
+        `sort_requested` and then sets the sorted frame restores it here.
+        """
+        if column is None:
+            self._sort_state = None
+        else:
+            self._sort_state = (column, order != constants.DESCENDING)
+
+    def get_sort_state(self) -> tuple[int, constants.SortOrder] | None:
+        """(column, order) of the current sort, None if unsorted."""
+        if self._sort_state is None:
+            return None
+        column, ascending = self._sort_state
+        return column, constants.ASCENDING if ascending else constants.DESCENDING
+
+    def set_sortable(self, value: bool):
+        self._sortable = value
+
+    def is_sortable(self) -> bool:
+        return self._sortable
+
+    def set_sort_mode(self, mode: SortMode):
+        self.table_data.get_model(skip_proxies=True).set_sort_mode(mode)
+
+    def get_sort_mode(self) -> SortMode:
+        return self.table_data.get_model(skip_proxies=True).get_sort_mode()
 
     def showEvent(self, event: gui.QShowEvent):
         """Initialize column and row sizes on the first time the widget is shown."""

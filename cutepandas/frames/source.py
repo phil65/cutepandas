@@ -164,6 +164,23 @@ class SortableSource(Protocol):
 
 
 @runtime_checkable
+class PermutableSource(Protocol):
+    """Optional hook: sort order as row positions, and reads in any row order.
+
+    Used for a display-only sort: the model keeps the permutation (one integer per
+    row) and reads each visible window through it, so the frame is never copied.
+    """
+
+    def argsort(self, column: int, descending: bool = False) -> np.ndarray:
+        """Row positions that sort the frame stably by one column, nulls last."""
+        ...
+
+    def fetch_rows(self, rows: np.ndarray, columns: Sequence[int]) -> list[ColumnChunk]:
+        """The given row positions (in that order) of the given columns."""
+        ...
+
+
+@runtime_checkable
 class EditableSource(Protocol):
     """Optional hook: a source whose frame can be changed cell by cell (GUI thread)."""
 

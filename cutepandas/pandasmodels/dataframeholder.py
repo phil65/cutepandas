@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from prettyqt import core
 
@@ -21,18 +22,26 @@ class DataFrameHolder(core.Object):
     Accepts a pandas DataFrame / Series (a Series is stored as a one-column frame), a
     pyarrow Table, a polars DataFrame or any `FrameSource`. `df` is the native frame,
     `source` the backend-agnostic adapter the table models read through.
+
+    `row_order` is an optional display order (row positions, see `set_row_order`):
+    a sort that only changes what the views show, without copying the frame.
+    Replacing the frame clears it.
     """
 
     about_to_change = core.Signal(object)  # ty: ignore[missing-argument]
     changed = core.Signal(object)  # ty: ignore[missing-argument]
+    row_order_about_to_change = core.Signal(object)  # ty: ignore[missing-argument]
+    row_order_changed = core.Signal(object)  # ty: ignore[missing-argument]
 
     def __init__(self, df: Any = None, **kwargs):
         super().__init__(**kwargs)
         self._df: Any = None
         self._source: FrameSource | None = None
+        self._row_order: np.ndarray | None = None
         self._store(df)
 
     def _store(self, df: Any):
+        self._row_order = None
         if isinstance(df, pd.Series):
             df = df.to_frame()
         if df is None:
@@ -62,6 +71,33 @@ class DataFrameHolder(core.Object):
         self.about_to_change.emit(origin)
         self._store(df)
         self.changed.emit(origin)
+
+    @property
+    def row_order(self) -> np.ndarray | None:
+        """Display order of the rows (row positions), None for the frame's order."""
+        return self._row_order
+
+    def set_row_order(self, order: Any, origin: Any = None):
+        """Show the rows in another order without touching the frame.
+
+        Args:
+            order: One row position per row (a permutation, e.g. from
+                `PermutableSource.argsort`), or None for the frame's own order.
+                Stored as an integer array: 8 bytes per row.
+            origin: Passed on with the signals.
+        """
+        if order is not None:
+            order = np.asarray(order, dtype=np.intp)
+            rows = 0 if self.source is None else self.source.row_count
+            if order.ndim != 1 or len(order) != rows:
+                msg = f"Row order needs {rows} positions, got shape {order.shape}"
+                raise ValueError(msg)
+            if rows and (order.min() < 0 or order.max() >= rows):
+                msg = "Row order contains positions outside the frame"
+                raise ValueError(msg)
+        self.row_order_about_to_change.emit(origin)
+        self._row_order = order
+        self.row_order_changed.emit(origin)
 
 
 class DataFrameHolderMixin:

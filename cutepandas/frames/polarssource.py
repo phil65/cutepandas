@@ -5,6 +5,7 @@ from __future__ import annotations
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 import polars as pl
 
 from cutepandas.frames.source import ColumnChunk, ColumnInfo, ColumnStats, Kind
@@ -52,10 +53,15 @@ def _number(value: Any) -> float | None:
     return None if value is None else float(value)
 
 
+def _chunk(series: pl.Series) -> ColumnChunk:
+    return ColumnChunk(series.to_list(), series.is_null().to_numpy())
+
+
 class PolarsSource:
     """Source over a polars DataFrame.
 
-    Implements the optional `SortableSource` and `EditableSource` hooks; `set_value`
+    Implements the optional `SortableSource`, `PermutableSource` and
+    `EditableSource` hooks; `set_value`
     changes the frame in place (`df[row, column] = value`).
     """
 
@@ -84,11 +90,10 @@ class PolarsSource:
 
     def fetch(self, start: int, stop: int, columns: Sequence[int]) -> list[ColumnChunk]:
         length = max(0, stop - start)
-        chunks = []
-        for j in columns:
-            series = self._column(j).slice(start, length)
-            chunks.append(ColumnChunk(series.to_list(), series.is_null().to_numpy()))
-        return chunks
+        return [_chunk(self._column(j).slice(start, length)) for j in columns]
+
+    def fetch_rows(self, rows: np.ndarray, columns: Sequence[int]) -> list[ColumnChunk]:
+        return [_chunk(self._column(j).gather(rows)) for j in columns]
 
     def fetch_arrow(self, start: int, stop: int, columns: Sequence[int]) -> pa.Table:
         names = [self._df.columns[j] for j in columns]
@@ -156,6 +161,17 @@ class PolarsSource:
             std=std,
             top=self.value_counts(column, limit=top) if unique is not None else [],
         )
+
+    def argsort(self, column: int, descending: bool = False) -> np.ndarray:
+        positions = self._df.select(
+            pl.int_range(pl.len(), dtype=pl.Int64).sort_by(
+                pl.nth(column),
+                descending=descending,
+                nulls_last=True,
+                maintain_order=True,
+            )
+        ).to_series()
+        return np.asarray(positions.to_numpy(), dtype=np.intp)
 
     def sort(self, column: int, descending: bool = False) -> pl.DataFrame:
         return self._df.sort(

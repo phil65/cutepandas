@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 import enum
 import logging
 import threading
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -15,11 +15,13 @@ import pyarrow as pa
 
 from cutepandas.frames import (
     ChunkCache,
+    ColumnChunk,
     ColumnInfo,
     EditableSource,
     FormatOptions,
     FrameSource,
     Kind,
+    PermutableSource,
     SortableSource,
     format_chunk,
     format_name,
@@ -41,6 +43,8 @@ logger = logging.getLogger(__name__)
 _RIGHT = constants.ALIGN_RIGHT | constants.ALIGN_V_CENTER
 _LEFT = constants.ALIGN_LEFT | constants.ALIGN_V_CENTER
 _PALETTE_STEPS = 64
+
+type SortMode = Literal["copy", "permutation"]
 
 
 @dataclass(slots=True)
@@ -71,11 +75,29 @@ class _FrameState:
     formatters: list[Formatter]
     alignments: list[Any]
     row_count: int
+    row_order: np.ndarray | None = None
+    """Display order (row positions) or None, see `DataFrameHolder.row_order`."""
     ranges: dict[int, tuple[float, float] | None] = field(default_factory=dict)
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
-def _make_state(source: FrameSource | None, options: FormatOptions) -> _FrameState:
+@dataclass(frozen=True, slots=True)
+class SortPermutation:
+    """A display-only sort order, see `DataFrameModel.compute_sort_permutation`."""
+
+    column: int
+    descending: bool
+    positions: np.ndarray
+    """Row positions of the frame in display order (8 bytes per row)."""
+    generation: int
+    """Data generation of the model it was computed for (stale check)."""
+
+
+def _make_state(
+    source: FrameSource | None,
+    options: FormatOptions,
+    row_order: np.ndarray | None = None,
+) -> _FrameState:
     if source is None:
         return _FrameState(None, [], [], [], 0)
     columns = list(source.columns)
@@ -85,6 +107,7 @@ def _make_state(source: FrameSource | None, options: FormatOptions) -> _FrameSta
         formatters=[formatter_for(c.kind, options) for c in columns],
         alignments=[_RIGHT if c.kind.is_numeric else _LEFT for c in columns],
         row_count=source.row_count,
+        row_order=row_order,
     )
 
 
@@ -99,6 +122,18 @@ class DataFrameModel(DataFrameHolderMixin, core.AbstractTableModel):
     With `color_values=True`, numeric cells get a background whose intensity follows
     the value within the column's (min, max); booleans are green / red. The colours
     are computed per block (vectorised), not per `data()` call.
+
+    Sorting (`sort`, e.g. from a header click) has two modes:
+
+    - `"copy"` (default): the source builds a sorted copy of the frame
+      (`SortableSource.sort`), which replaces the holder's frame. The copy is as large
+      as the frame and the old frame stays alive as long as someone references it.
+    - `"permutation"`: display-only. The source returns the sort order as row
+      positions (`PermutableSource.argsort`, 8 bytes per row), stored as the holder's
+      `row_order`; the frame is not copied or changed, and every visible block is
+      read through the order (`PermutableSource.fetch_rows`). Row `i` of the model is
+      row `source_row(i)` of the frame. Replacing the frame or `clear_sort()` drops
+      the order.
 
     Threads: all Qt methods (`data`, `setData`, `sort`, assigning `df`, setters) run
     on the GUI thread. `prefetch()` may run on any thread; it only fills the cache.
@@ -130,6 +165,7 @@ class DataFrameModel(DataFrameHolderMixin, core.AbstractTableModel):
         color_values: bool = False,
         dtype_icons: bool = False,
         read_only: bool = False,
+        sort_mode: SortMode = "copy",
         **kwargs,
     ):
         """Show a frame.
@@ -144,6 +180,8 @@ class DataFrameModel(DataFrameHolderMixin, core.AbstractTableModel):
             color_values: Colour numeric / boolean cells by value.
             dtype_icons: Show a dtype icon in the column headers.
             read_only: Disable editing even if the backend supports it.
+            sort_mode: `"copy"` (sorted copy of the frame) or `"permutation"`
+                (display-only row order, no copy); see the class docstring.
             args: Passed on to the Qt base class.
             kwargs: Passed on to the Qt base class.
         """
@@ -152,12 +190,16 @@ class DataFrameModel(DataFrameHolderMixin, core.AbstractTableModel):
         self._color_values = color_values
         self._dtype_icons = dtype_icons
         self._read_only = read_only
+        self._sort_mode: SortMode = sort_mode
+        self._data_generation = 0
         self._palette: list[Any] | None = None
         self._cache: ChunkCache[CellChunk] = ChunkCache(chunk_rows, max_chunks)
         self._chunk_rows = chunk_rows
         self._state = _make_state(None, self._options)
         super().__init__(*args, **kwargs)
         self._init_holder(df)
+        self.holder.row_order_about_to_change.connect(self._on_row_order_about_to_change)
+        self.holder.row_order_changed.connect(self._on_row_order_changed)
         self._refresh_state()
 
     @classmethod
@@ -168,12 +210,20 @@ class DataFrameModel(DataFrameHolderMixin, core.AbstractTableModel):
 
     def _refresh_state(self):
         self._cache.clear()
-        self._state = _make_state(self.source, self._options)
+        self._state = _make_state(self.source, self._options, self.holder.row_order)
 
     def _on_holder_changed(self, origin: Any):
         # Also for changes made by this model (sort): the cache belongs to the old frame.
+        self._data_generation += 1
         self._refresh_state()
         super()._on_holder_changed(origin)
+
+    def _on_row_order_about_to_change(self, origin: Any):
+        self.layoutAboutToBeChanged.emit()
+
+    def _on_row_order_changed(self, origin: Any):
+        self._refresh_state()  # blocks were read in the old order
+        self.layoutChanged.emit()
 
     @property
     def cache(self) -> ChunkCache[CellChunk]:
@@ -247,7 +297,11 @@ class DataFrameModel(DataFrameHolderMixin, core.AbstractTableModel):
         assert state.source is not None
         start = block * self._chunk_rows
         stop = min(start + self._chunk_rows, state.row_count)
-        [fetched] = state.source.fetch(start, stop, [col])
+        if state.row_order is None:
+            [fetched] = state.source.fetch(start, stop, [col])
+        else:
+            assert isinstance(state.source, PermutableSource)
+            [fetched] = state.source.fetch_rows(state.row_order[start:stop], [col])
         display = format_chunk(
             fetched.values, fetched.nulls, state.formatters[col], self._options.null_text
         )
@@ -268,6 +322,23 @@ class DataFrameModel(DataFrameHolderMixin, core.AbstractTableModel):
         if not chunk.scaled:  # on demand, once per block (GUI thread)
             self._add_colors(self._state, col, chunk)
         return chunk
+
+    def source_row(self, row: int) -> int:
+        """Row position in the frame of the model's row `row` (differs once sorted)."""
+        order = self._state.row_order
+        return row if order is None else int(order[row])
+
+    def fetch_window(
+        self, start: int, stop: int, columns: Sequence[int]
+    ) -> list[ColumnChunk]:
+        """Model rows `start:stop` of the given columns, in display order."""
+        state = self._state
+        if state.source is None:
+            return []
+        if state.row_order is None:
+            return state.source.fetch(start, stop, columns)
+        assert isinstance(state.source, PermutableSource)
+        return state.source.fetch_rows(state.row_order[start:stop], columns)
 
     def prefetch(
         self, first_row: int, last_row: int, columns: Sequence[int] | None = None
@@ -344,8 +415,8 @@ class DataFrameModel(DataFrameHolderMixin, core.AbstractTableModel):
     ):
         columns = self._state.columns
         if orientation == constants.VERTICAL:
-            if role == constants.DISPLAY_ROLE:
-                return str(section)
+            if role == constants.DISPLAY_ROLE and 0 <= section < self._state.row_count:
+                return str(self.source_row(section))
             return None
         if not 0 <= section < len(columns):
             return None
@@ -394,10 +465,11 @@ class DataFrameModel(DataFrameHolderMixin, core.AbstractTableModel):
         row, col = index.row(), index.column()
         try:
             # In place: every model sharing the holder sees the same object.
-            source.set_value(row, col, value)
+            source.set_value(self.source_row(row), col, value)
         except Exception:
             logger.exception("Could not set %r at %s", value, (row, col))
             return False
+        self._data_generation += 1  # a sort order computed before is stale now
         state = self._state
         with state.lock:
             state.ranges.pop(col, None)
@@ -410,12 +482,65 @@ class DataFrameModel(DataFrameHolderMixin, core.AbstractTableModel):
         return True
 
     def sort(self, ncol: int, order: constants.SortOrder = constants.ASCENDING):
+        """Sort by column `ncol` (see `sort_mode`); unsupported sources are ignored."""
         source = self._state.source
-        if not isinstance(source, SortableSource) or not 0 <= ncol < self.columnCount():
+        if not 0 <= ncol < self.columnCount():
             return
-        new = source.sort(ncol, descending=order == constants.DESCENDING)
+        descending = order == constants.DESCENDING
+        if self._sort_mode == "permutation":
+            if (permutation := self.compute_sort_permutation(ncol, order)) is not None:
+                self.apply_sort_permutation(permutation)
+            return
+        if not isinstance(source, SortableSource):
+            return
+        new = source.sort(ncol, descending=descending)
         with self.change_layout():
             self.df = new
+
+    def compute_sort_permutation(
+        self, column: int, order: constants.SortOrder = constants.ASCENDING
+    ) -> SortPermutation | None:
+        """Compute a display-only sort order (any thread, e.g. a worker).
+
+        Reads the frame through `PermutableSource.argsort` (stable, nulls last);
+        the result is one integer per row. Returns None if the source can't sort.
+        Apply it with `apply_sort_permutation` on the GUI thread.
+        """
+        generation = self._data_generation  # before reading: edits make it stale
+        source = self._state.source
+        if not isinstance(source, PermutableSource):
+            return None
+        descending = order == constants.DESCENDING
+        positions = source.argsort(column, descending=descending)
+        return SortPermutation(column, descending, positions, generation)
+
+    def apply_sort_permutation(self, permutation: SortPermutation) -> bool:
+        """Show the rows in a computed order (GUI thread).
+
+        Returns False (and changes nothing) if the frame was replaced or edited
+        since the order was computed.
+        """
+        if permutation.generation != self._data_generation:
+            return False
+        self.holder.set_row_order(permutation.positions, origin=self)
+        return True
+
+    def can_sort(self) -> bool:
+        """True if the source supports sorting in the current `sort_mode`."""
+        protocol = (
+            PermutableSource if self._sort_mode == "permutation" else SortableSource
+        )
+        return isinstance(self._state.source, protocol)
+
+    def clear_sort(self):
+        """Back to the frame's own row order (drops a display-only sort)."""
+        if self.holder.row_order is not None:
+            self.holder.set_row_order(None, origin=self)
+
+    @property
+    def row_order(self) -> np.ndarray | None:
+        """Display order of the rows (row positions), None if not permuted."""
+        return self._state.row_order
 
     # --- options ---
 
@@ -447,6 +572,15 @@ class DataFrameModel(DataFrameHolderMixin, core.AbstractTableModel):
 
     def get_dtype_icons(self) -> bool:
         return self._dtype_icons
+
+    def set_sort_mode(self, mode: SortMode):
+        if mode not in {"copy", "permutation"}:
+            msg = f"Invalid sort mode {mode!r}"
+            raise ValueError(msg)
+        self._sort_mode = mode
+
+    def get_sort_mode(self) -> SortMode:
+        return self._sort_mode
 
     def set_read_only(self, value: bool):
         self._read_only = value
@@ -480,6 +614,19 @@ class VerticalHeaderModel(DataFrameHolderMixin, core.AbstractTableModel):
     def __init__(self, df: Any = None, **kwargs):
         super().__init__(**kwargs)
         self._init_holder(df)
+        # A display-only sort (holder.row_order) moves the row labels too.
+        self.holder.row_order_about_to_change.connect(self._on_row_order_about_to_change)
+        self.holder.row_order_changed.connect(self._on_row_order_changed)
+
+    def _on_row_order_about_to_change(self, origin: Any):
+        self.layoutAboutToBeChanged.emit()
+
+    def _on_row_order_changed(self, origin: Any):
+        self.layoutChanged.emit()
+
+    def _row(self, row: int) -> int:
+        order = self.holder.row_order
+        return row if order is None else int(order[row])
 
     def _index(self) -> pd.Index | None:
         df = self.df
@@ -507,9 +654,10 @@ class VerticalHeaderModel(DataFrameHolderMixin, core.AbstractTableModel):
         match role:
             case constants.DISPLAY_ROLE | constants.TOOLTIP_ROLE:
                 pd_index = self._index()
+                row = self._row(index.row())
                 if pd_index is None:
-                    return str(index.row())
-                value = pd_index[index.row()]
+                    return str(row)
+                value = pd_index[row]
                 if isinstance(pd_index, pd.MultiIndex):
                     value = value[index.column()]
                 return str(value)

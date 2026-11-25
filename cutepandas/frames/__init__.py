@@ -24,6 +24,7 @@ from cutepandas.frames.source import (
     EditableSource,
     FrameSource,
     Kind,
+    PermutableSource,
     SortableSource,
     format_name,
 )
@@ -62,6 +63,7 @@ __all__ = [
     "FrameSource",
     "Kind",
     "PandasSource",
+    "PermutableSource",
     "SortableSource",
     "as_source",
     "format_chunk",

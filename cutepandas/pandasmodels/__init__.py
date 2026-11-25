@@ -53,6 +53,8 @@ from .dataframemodel import (
     CellChunk,
     DataFrameModel,
     HorizontalHeaderModel,
+    SortMode,
+    SortPermutation,
     VerticalHeaderModel,
 )
 from .pandascategorylistmodel import PandasCategoryListModel
@@ -78,5 +80,7 @@ __all__ = [
     "PandasMultiStringColumnFilterProxyModel",
     "PandasStringColumnFilterProxyModel",
     "SchemaModel",
+    "SortMode",
+    "SortPermutation",
     "VerticalHeaderModel",
 ]
