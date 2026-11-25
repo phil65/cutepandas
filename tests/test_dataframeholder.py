@@ -47,7 +47,7 @@ def test_holder_wraps_series():
 
 def test_models_share_holder(qtbot, frame):
     holder = pandasmodels.DataFrameHolder(frame)
-    data_model = pandasmodels.PandasDataFrameModel(holder)
+    data_model = pandasmodels.DataFrameModel(holder)
     column_model = pandasmodels.PandasColumnListModel(holder)
     with qtbot.waitSignal(data_model.modelReset):
         assert column_model.setData(column_model.index(0, 0), "renamed")
@@ -56,15 +56,15 @@ def test_models_share_holder(qtbot, frame):
 
 
 def test_model_owns_private_holder(frame):
-    model = pandasmodels.PandasDataFrameModel(frame)
-    other = pandasmodels.PandasDataFrameModel(frame)
+    model = pandasmodels.DataFrameModel(frame)
+    other = pandasmodels.DataFrameModel(frame)
     model.sort(0, constants.ASCENDING)
     assert other.data(other.index(0, 0)) == "3"  # not shared: unaffected
 
 
 def test_proxy_follows_holder(frame):
     holder = pandasmodels.DataFrameHolder(frame)
-    source = pandasmodels.PandasDataFrameModel(holder)
+    source = pandasmodels.DataFrameModel(holder)
     proxy = pandasmodels.PandasEvalFilterProxyModel()
     proxy.setSourceModel(source)
     proxy.set_expression("n > 1")

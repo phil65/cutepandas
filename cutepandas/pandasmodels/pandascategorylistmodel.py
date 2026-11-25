@@ -3,32 +3,30 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import numpy as np
 import pandas as pd
-from prettyqt import constants, core, itemmodels
+from prettyqt import constants, core
 from prettyqt.utils import helpers
 
-from cutepandas.pandasmodels.dataframeholder import DataFrameHolder, DataFrameHolderMixin
+from cutepandas.pandasmodels.categorymodel import CategoryModel
+from cutepandas.pandasmodels.dataframeholder import DataFrameHolder
 
 
 logger = logging.getLogger(__name__)
 
 
-class PandasCategoryListModel(
-    DataFrameHolderMixin, itemmodels.ModelMixin, core.AbstractTableModel
-):
+class PandasCategoryListModel(CategoryModel):
+    """`CategoryModel` for a pandas `category` column that also edits it.
+
+    Rename, reorder (drag and drop, sorting), add categories, toggle `ordered`,
+    remove unused ones. `USER_ROLE` returns the rows of a category.
+    """
+
     MIME_TYPE = "mime_categories"
-    HEADER = ["Name", "Code"]
 
     def __init__(
-        self,
-        df: pd.DataFrame | DataFrameHolder | None = None,
-        col=None,
-        parent=None,
+        self, df: pd.DataFrame | DataFrameHolder | None = None, col=None, parent=None
     ):
-        super().__init__(parent=parent)
-        self.col = col
-        self._init_holder(df)
+        super().__init__(df, col, parent=parent)
 
     @property
     def series(self):
@@ -72,43 +70,11 @@ class PandasCategoryListModel(
         index: core.ModelIndex,
         role: constants.ItemDataRole = constants.DISPLAY_ROLE,
     ):
-        if not index.isValid():
-            return None
-        # if role == constants.DECORATION_ROLE:
-        #     if index.column() == 0:
-        #         return iconprovider.get_icon(iconnames.CATEGORY, as_qicon=True)
-        assert self.df is not None
-        cat_name = self.series.cat.categories[index.row()]
-        match role, index.column():
-            case constants.DISPLAY_ROLE | constants.EDIT_ROLE, 0:
-                return helpers.format_name(cat_name)
-            case constants.DISPLAY_ROLE | constants.EDIT_ROLE, 1:
-                # A category's code is its position in the categories.
-                return str(index.row())
-            case constants.NAME_ROLE, _:
-                if isinstance(cat_name, np.number):
-                    return cat_name.item()
-                return cat_name
-            case constants.TOOLTIP_ROLE, _:
-                num_items = len(self.df[self.series == cat_name])
-                return f"<b>{cat_name}</b><br>Items: {num_items}"
-            case constants.USER_ROLE, _:
-                return self.df[self.series == cat_name]
-        return None
-
-    def rowCount(self, parent: core.ModelIndex | None = None) -> int:
-        if parent is not None and parent.isValid():
-            return 0
-        if self.df is None or self.col not in self.df.columns:
-            return 0
-        if not isinstance(self.series.dtype, pd.CategoricalDtype):
-            return 0
-        return len(self.series.cat.categories)
-
-    def columnCount(self, parent: core.ModelIndex | None = None) -> int:
-        if parent is not None and parent.isValid():
-            return 0
-        return len(self.HEADER)
+        if role == constants.USER_ROLE and index.isValid():
+            category = self.categories[index.row()]
+            assert self.df is not None
+            return self.df[self.series == category]
+        return super().data(index, role)
 
     def mimeData(self, indexes):
         mime_data = core.MimeData()

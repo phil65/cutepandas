@@ -5,21 +5,20 @@ CutePandas contains a range of tools to work with pandas data structures.
 
 ## Models
 
-CutePandas includes multiple models to display Pandas dataframes.
-One of the key "issues" is that in contrast to QAbstractTableModels, a pandas
-DataFrame can have MultiIndexes. CutePandas offers several approaches to display
-these MultiIndexes.
+`DataFrameModel` is a virtual table model for pandas, pyarrow and polars frames. It
+reads through a `FrameSource` (see `cutepandas.frames`) and converts only the visible
+window: rows are fetched in blocks per column, formatted once by per-dtype formatters
+and kept in a bounded, thread-safe LRU cache. pandas MultiIndex columns are shown by
+joining the levels with a separator (a Qt Property).
 
-PandasDataFrameModel is a very simple model which is displaying MultiIndexes by
-joining the multiple index levels using a separator (the separator value is exposed
-as a Qt Property).
+`VerticalHeaderModel` / `HorizontalHeaderModel` show one cell per index level; the
+`DataFrameViewer` widget combines them with the data table (synced on scrolling /
+resizing).
 
-In addition, two composed widgets are included which consist of three different
-tables (one for data, one for the index, one for the headers) which are synced on
-scrolling / resizing.
-
-There is also a model to get a detailed view on an index and another one to display
-the categories of a pandas category column.
+`SchemaModel` lists the columns of any frame (dtype, icon, null count, size),
+`CategoryModel` the categories of a categorical / enum column. Their pandas
+subclasses `PandasColumnListModel` and `PandasCategoryListModel` also edit the frame;
+`PandasIndexListModel` shows (and edits) the index levels.
 
 Models can share one frame through a DataFrameHolder: a change made through one model
 (rename, dtype change, sorting, ...) shows up in all others.
@@ -44,32 +43,40 @@ column "a" is greater than 10).
 
 PandasMultiStringColumnFilterProxyModel shows the rows where several columns each
 start with a given prefix.
+
+The proxies compute their masks with pandas: they need a pandas frame.
 """
 
+from .categorymodel import CategoryModel
 from .dataframeholder import DataFrameHolder
-from .pandascategorylistmodel import PandasCategoryListModel
-from .pandascolumnlistmodel import PandasColumnListModel, PandasIndexListModel
-from .pandasdataframemodel import (
+from .dataframemodel import (
+    CellChunk,
+    DataFrameModel,
     HorizontalHeaderModel,
-    PandasDataFrameModel,
     VerticalHeaderModel,
 )
+from .pandascategorylistmodel import PandasCategoryListModel
+from .pandascolumnlistmodel import PandasColumnListModel, PandasIndexListModel
 from .pandasindexfilterproxymodel import (
     PandasEvalFilterProxyModel,
     PandasMultiStringColumnFilterProxyModel,
     PandasStringColumnFilterProxyModel,
 )
+from .schemamodel import SchemaModel
 
 
 __all__ = [
+    "CategoryModel",
+    "CellChunk",
     "DataFrameHolder",
+    "DataFrameModel",
     "HorizontalHeaderModel",
     "PandasCategoryListModel",
     "PandasColumnListModel",
-    "PandasDataFrameModel",
     "PandasEvalFilterProxyModel",
     "PandasIndexListModel",
     "PandasMultiStringColumnFilterProxyModel",
     "PandasStringColumnFilterProxyModel",
+    "SchemaModel",
     "VerticalHeaderModel",
 ]

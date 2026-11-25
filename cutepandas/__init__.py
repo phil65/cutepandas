@@ -8,6 +8,8 @@ __email__ = "phil65@kodi.tv"
 __version__ = version("cutepandas")
 
 __all__ = [
+    "delegates",
+    "frames",
     "pandasmodels",
     "pandaswidgets",
 ]

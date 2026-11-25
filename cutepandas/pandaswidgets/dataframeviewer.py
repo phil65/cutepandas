@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -17,8 +18,25 @@ SelectionFlag = core.ItemSelectionModel.SelectionFlag
 QWIDGETSIZE_MAX = (1 << 24) - 1
 
 
+def _pd_axis(df: Any, horizontal: bool) -> pd.Index | None:
+    """Columns / index of a pandas frame; None for other backends (one level)."""
+    if not isinstance(df, pd.DataFrame):
+        return None
+    return df.columns if horizontal else df.index
+
+
+def _nlevels(df: Any, horizontal: bool) -> int:
+    axis = _pd_axis(df, horizontal)
+    return 1 if axis is None else axis.nlevels
+
+
+def _has_level_names(df: Any, horizontal: bool) -> bool:
+    axis = _pd_axis(df, horizontal)
+    return axis is not None and any(name is not None for name in axis.names)
+
+
 class DataTableView(widgets.TableView):
-    def __init__(self, df: pd.DataFrame | DataFrameHolder | None = None, **kwargs):
+    def __init__(self, df: Any = None, **kwargs):
         super().__init__(**kwargs)
 
         self.h_header.hide()
@@ -30,22 +48,30 @@ class DataTableView(widgets.TableView):
         self.set_scrollbar_policy("always_off")
         self.set_delegate("editor")
         self.set_size_policy("expanding", "expanding")
-        self.set_model(pandasmodels.PandasDataFrameModel(df, parent=self))
+        self.set_model(pandasmodels.DataFrameModel(df, parent=self))
 
-    def set_df(self, df: pd.DataFrame | None):
+    def set_df(self, df: Any):
         self.get_model(skip_proxies=True).holder.df = df
 
     def copy(self):
         """Copy the bounding box of the selected cells as tab-separated text."""
         indexes = self.selectionModel().selection().indexes()
-        df = self.get_model(skip_proxies=True).df
-        if not indexes or df is None:
+        source = self.get_model(skip_proxies=True).source
+        if not indexes or source is None:
             return
         rows = [ix.row() for ix in indexes]
-        cols = [ix.column() for ix in indexes]
-        block = df.iloc[min(rows) : max(rows) + 1, min(cols) : max(cols) + 1]
-        text = block.to_csv(sep="\t", index=False, header=False, lineterminator="\n")
-        gui.GuiApplication.clipboard().setText(text.removesuffix("\n"))
+        cols = range(
+            min(ix.column() for ix in indexes), max(ix.column() for ix in indexes) + 1
+        )
+        chunks = source.fetch(min(rows), max(rows) + 1, cols)
+        lines = [
+            "\t".join(
+                "" if chunk.values[i] is None else str(chunk.values[i])
+                for chunk in chunks
+            )
+            for i in range(max(rows) + 1 - min(rows))
+        ]
+        gui.GuiApplication.clipboard().setText("\n".join(lines))
 
     def paste(self):
         """Paste tab-separated clipboard text, starting at the current cell."""
@@ -90,9 +116,7 @@ class DataTableView(widgets.TableView):
 
 
 class DataFrameViewer(widgets.Widget):
-    def __init__(
-        self, df: pd.DataFrame | DataFrameHolder | None = None, **kwargs
-    ) -> None:
+    def __init__(self, df: Any = None, **kwargs) -> None:
         """Pass a DataFrameHolder to share the frame with other models / widgets."""
         super().__init__(**kwargs)
         # Indicates whether the widget has been shown yet. Set to True in showEvent.
@@ -166,14 +190,14 @@ class DataFrameViewer(widgets.Widget):
         self._on_df_changed()
 
     @property
-    def df(self) -> pd.DataFrame | None:
+    def df(self) -> Any:
         return self.holder.df
 
     @df.setter
-    def df(self, df: pd.DataFrame | None):
+    def df(self, df: Any):
         self.set_df(df)
 
-    def set_df(self, df: pd.DataFrame | None):
+    def set_df(self, df: Any):
         """Show another frame (in every model / widget sharing the holder)."""
         self.holder.df = df
 
@@ -186,12 +210,12 @@ class DataFrameViewer(widgets.Widget):
         # Only show the level-name headers if there are level names
         v_header = self.table_columns.v_header
         h_header = self.table_index.h_header
-        if df is not None and any(name is not None for name in df.columns.names):
+        if _has_level_names(df, horizontal=True):
             v_header.setMinimumWidth(0)
             v_header.setMaximumWidth(QWIDGETSIZE_MAX)
         else:
             v_header.setFixedWidth(0)
-        if df is not None and any(name is not None for name in df.index.names):
+        if _has_level_names(df, horizontal=False):
             h_header.setMinimumHeight(0)
             h_header.setMaximumHeight(QWIDGETSIZE_MAX)
         else:
@@ -245,9 +269,8 @@ class DataFrameViewer(widgets.Widget):
             return
         col = ix.column()
         ascending = self._sort_state != (col, True)
-        column = self.df.iloc[:, col].reset_index(drop=True)
-        order = column.sort_values(ascending=ascending, kind="stable").index
-        self.set_df(self.df.iloc[order.to_numpy()])
+        order = constants.ASCENDING if ascending else constants.DESCENDING
+        self.table_data.model().sort(col, order)
         self._sort_state = (col, ascending)  # set after: a frame change resets it
 
     def showEvent(self, event: gui.QShowEvent):
@@ -464,14 +487,14 @@ class HeaderView(custom_widgets.OrientedTableView):
             # Get the header's selected columns
             # Removes the higher levels so that only the lowest level of the header
             # affects the data table selection
-            last_row_ix = model.df.columns.nlevels - 1
+            last_row_ix = _nlevels(model.df, horizontal=True) - 1
             last_col_ix = model.columnCount() - 1
             return core.ItemSelection(
                 model.index(0, 0), model.index(last_row_ix - 1, last_col_ix)
             )
         else:
             last_row_ix = model.rowCount() - 1
-            last_col_ix = model.df.index.nlevels - 1
+            last_col_ix = _nlevels(model.df, horizontal=False) - 1
             return core.ItemSelection(
                 model.index(0, 0), model.index(last_row_ix, last_col_ix - 1)
             )
@@ -484,14 +507,14 @@ class HeaderView(custom_widgets.OrientedTableView):
         if df is None:
             return
         if self.is_horizontal():
-            if df.columns.nlevels == 1:
+            if _nlevels(df, horizontal=True) == 1:
                 return
             for ix in self.selectedIndexes():
                 for row in range(ix.row()):
                     ix2 = self.model().index(row, ix.column())
                     self.setSelection(self.visualRect(ix2), SelectionFlag.Select)
         else:
-            if df.index.nlevels == 1:
+            if _nlevels(df, horizontal=False) == 1:
                 return
             for ix in self.selectedIndexes():
                 for col in range(ix.column()):
@@ -524,8 +547,8 @@ class HeaderView(custom_widgets.OrientedTableView):
         ("a", 1), ("b", 1) doesn't merge the two 1s across the a/b boundary.
         """
         df = self.get_model(skip_proxies=True).df
-        index = df.columns if self.is_horizontal() else df.index
-        if len(index) < 2:
+        index = _pd_axis(df, self.is_horizontal())
+        if index is None or len(index) < 2:
             return
         if isinstance(index, pd.MultiIndex):
             levels = [np.asarray(codes) for codes in index.codes]

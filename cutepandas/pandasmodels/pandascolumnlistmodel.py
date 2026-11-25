@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import enum
 import logging
 from typing import Any
 
@@ -10,27 +9,22 @@ from prettyqt import constants, core, itemmodels
 from prettyqt.utils import helpers
 
 from cutepandas.pandasmodels.dataframeholder import DataFrameHolder, DataFrameHolderMixin
+from cutepandas.pandasmodels.schemamodel import SchemaModel
 
 
 logger = logging.getLogger(__name__)
 
 
-class PandasColumnListModel(
-    DataFrameHolderMixin, itemmodels.ModelMixin, core.AbstractTableModel
-):
-    HEADER = ["Name", "Type", "Size"]
+class PandasColumnListModel(SchemaModel):
+    """`SchemaModel` for pandas frames that also edits them.
+
+    Rename (column 0), change the dtype (column 1, see `DTypeDelegate`), remove,
+    reorder by drag and drop or by sorting, append columns and move index levels into
+    the columns (drop from `PandasIndexListModel`).
+    """
+
     MIME_TYPE = "mime_columns"
     content_type = "features"
-
-    class Roles(enum.IntEnum):
-        """Role names."""
-
-        DTypeRole = constants.USER_ROLE + 4555
-        ColumnNameRole = constants.USER_ROLE + 4556
-
-    def __init__(self, df: pd.DataFrame | DataFrameHolder | None = None, **kwargs):
-        super().__init__(**kwargs)
-        self._init_holder(df)
 
     def mimeData(self, indexes):
         mime_data = core.MimeData()
@@ -131,58 +125,19 @@ class PandasColumnListModel(
         index: core.ModelIndex,
         role: constants.ItemDataRole = constants.DISPLAY_ROLE,
     ):
-        if not index.isValid():
-            return None
-
-        match role:
-            # case constants.DECORATION_ROLE:
-            #     if index.column() == 0:
-            #         dtype = self.data_by_index(index).dtype
-            #         return icons.icon_for_dtype(dtype)
-
-            case constants.DISPLAY_ROLE | constants.EDIT_ROLE:
-                match index.column():
-                    case 0:
-                        return str(self.data_by_index(index).name)
-                    case 1:
-                        return str(self.data_by_index(index).dtype)
-                    case 2:
-                        nbytes = self.data_by_index(index).nbytes
-                        locale = core.Locale()
-                        return locale.get_formatted_data_size(nbytes)
-
-            case self.Roles.DTypeRole:
-                return self.data_by_index(index).dtype
-
-            case constants.USER_ROLE:
-                return self.data_by_index(index)
-
-            case self.Roles.ColumnNameRole:
-                return self.data_by_index(index).name
-
-    def rowCount(self, parent: core.ModelIndex | None = None) -> int:
-        if self.df is None or (parent is not None and parent.isValid()):
-            return 0
-        return len(self.df.columns)
-
-    def columnCount(self, parent: core.ModelIndex | None = None) -> int:
-        if parent is not None and parent.isValid():
-            return 0
-        return len(self.HEADER)
+        if index.isValid() and role == constants.USER_ROLE and self.df is not None:
+            return self.data_by_index(index)
+        return super().data(index, role)
 
     def sort(self, ncol: int, order: constants.SortOrder = constants.ASCENDING):
         if self.df is None:
             return
-        columns = [self.df.iloc[:, i] for i in range(len(self.df.columns))]
-        match ncol:
-            case 0:
-                keys = [str(col.name) for col in columns]
-            case 1:
-                keys = [str(col.dtype) for col in columns]
-            case 2:
-                keys = [col.nbytes for col in columns]
-            case _:
-                return
+        if not 0 <= ncol < len(self.HEADER):
+            return
+        keys = [
+            self.data(self.index(row, ncol), constants.SORT_ROLE)
+            for row in range(self.rowCount())
+        ]
         positions = sorted(
             range(len(keys)),
             key=keys.__getitem__,

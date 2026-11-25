@@ -29,22 +29,22 @@ def filter_df():
 
 
 def make_proxy(cls, df):
-    source = pandasmodels.PandasDataFrameModel(df)
+    source = pandasmodels.DataFrameModel(df)
     proxy = cls()
     proxy.setSourceModel(source)
     return source, proxy
 
 
-# --- PandasDataFrameModel ---
+# --- DataFrameModel ---
 
 
 def test_dataframemodel_modeltester(qtmodeltester, multi_df):
-    model = pandasmodels.PandasDataFrameModel(multi_df)
+    model = pandasmodels.DataFrameModel(multi_df)
     qtmodeltester.check(model, force_py=True)
 
 
 def test_dataframemodel_series():
-    model = pandasmodels.PandasDataFrameModel(pd.Series([1, 2], name="s"))
+    model = pandasmodels.DataFrameModel(pd.Series([1, 2], name="s"))
     assert model.columnCount() == 1
     assert model.data(model.index(1, 0)) == "2"
     assert model.data(model.index(1, 0), constants.EDIT_ROLE) == 2
@@ -52,13 +52,13 @@ def test_dataframemodel_series():
 
 
 def test_dataframemodel_nan_display(multi_df):
-    model = pandasmodels.PandasDataFrameModel(multi_df)
+    model = pandasmodels.DataFrameModel(multi_df)
     assert model.data(model.index(2, 0)) == ""
-    assert model.data(model.index(2, 0), constants.TOOLTIP_ROLE) == "NaN"
+    assert model.data(model.index(2, 0), constants.TOOLTIP_ROLE) == "null"
 
 
 def test_dataframemodel_sort(df):
-    model = pandasmodels.PandasDataFrameModel(df)
+    model = pandasmodels.DataFrameModel(df)
     model.sort(0, constants.DESCENDING)
     assert model.data(model.index(0, 0)) == "c"
 
@@ -97,7 +97,7 @@ def test_columnlistmodel_sort_by_size_is_numeric():
     df = pd.DataFrame({"big": np.zeros(13, dtype=np.int64), "small": np.zeros(13, "i1")})
     model = pandasmodels.PandasColumnListModel(df)
     # 104 bytes vs 13 bytes: a string comparison would put "104" first.
-    model.sort(2, constants.ASCENDING)
+    model.sort(3, constants.ASCENDING)
     assert list(model.df.columns) == ["small", "big"]
 
 
@@ -286,24 +286,10 @@ def test_multi_string_filter_is_real_startswith():
     assert proxy.rowCount() == 3
 
 
-def test_polars_model(qtmodeltester):
-    pl = pytest.importorskip("polars")
-    from cutepandas.pandasmodels.polarsdataframemodel import (  # noqa: PLC0415
-        PolarsDataFrameModel,  # needs the optional polars dependency
-    )
-
-    model = PolarsDataFrameModel(pl.DataFrame({"a": [3, 1, 2], "b": ["x", "y", "z"]}))
-    qtmodeltester.check(model, force_py=True)
-    assert model.setData(model.index(0, 0), 5)
-    assert model.df[0, "a"] == 5
-    model.sort(0, constants.ASCENDING)
-    assert model.df["a"].to_list() == [1, 2, 5]
-
-
 @pytest.mark.parametrize("order", [constants.ASCENDING, constants.DESCENDING])
 def test_dataframemodel_sort_stable_nan_last(order):
     df = pd.DataFrame({"k": [2.0, np.nan, 1.0, 2.0, 1.0], "tag": list("abcde")})
-    model = pandasmodels.PandasDataFrameModel(df)
+    model = pandasmodels.DataFrameModel(df)
     model.sort(0, order)
     # ties keep their original order, NaN goes last in both directions
     expected = "ceadb" if order == constants.ASCENDING else "adceb"
