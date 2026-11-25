@@ -415,8 +415,15 @@ class DataFrameModel(DataFrameHolderMixin, core.AbstractTableModel):
     ):
         columns = self._state.columns
         if orientation == constants.VERTICAL:
-            if role == constants.DISPLAY_ROLE and 0 <= section < self._state.row_count:
-                return str(self.source_row(section))
+            if not 0 <= section < self._state.row_count:
+                return None
+            if role in {constants.DISPLAY_ROLE, constants.TOOLTIP_ROLE}:
+                row = self.source_row(section)
+                if isinstance(self.df, pd.DataFrame):
+                    return format_name(self.df.index[row], self._multiindex_separator)
+                return str(row)
+            if role == constants.ALIGNMENT_ROLE:
+                return constants.ALIGN_RIGHT | constants.ALIGN_V_CENTER
             return None
         if not 0 <= section < len(columns):
             return None
@@ -428,7 +435,7 @@ class DataFrameModel(DataFrameHolderMixin, core.AbstractTableModel):
                 label = format_name(info.name, self._multiindex_separator)
                 return f"{label}\n{info.dtype}"
             case constants.ALIGNMENT_ROLE:
-                return constants.ALIGN_CENTER | constants.ALIGN_BOTTOM
+                return constants.ALIGN_CENTER
             case constants.DECORATION_ROLE if self._dtype_icons:
                 return icons.icon_for_kind(info.kind)
             case self.Roles.DTypeRole:
@@ -676,7 +683,8 @@ class VerticalHeaderModel(DataFrameHolderMixin, core.AbstractTableModel):
                     return "" if section == 0 and self.df is not None else None
                 if not 0 <= section < pd_index.nlevels:
                     return None
-                return str(pd_index.names[section])
+                name = pd_index.names[section]
+                return "" if name is None else str(name)
         return None
 
 
@@ -734,7 +742,8 @@ class HorizontalHeaderModel(DataFrameHolderMixin, core.AbstractTableModel):
                     return "" if section == 0 and self.df is not None else None
                 if not 0 <= section < pd_columns.nlevels:
                     return None
-                return str(pd_columns.names[section])
+                name = pd_columns.names[section]
+                return "" if name is None else str(name)
         return None
 
 

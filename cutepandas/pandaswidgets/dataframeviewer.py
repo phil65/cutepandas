@@ -10,6 +10,7 @@ from prettyqt import constants, core, custom_widgets, gui, widgets
 
 from cutepandas import pandasmodels
 from cutepandas.pandasmodels import DataFrameHolder
+from cutepandas.pandaswidgets import _viewer_style
 from cutepandas.utils import helpers
 
 
@@ -23,6 +24,8 @@ SelectionFlag = core.ItemSelectionModel.SelectionFlag
 QWIDGETSIZE_MAX = (1 << 24) - 1
 ROW_PADDING = 10
 MAX_ROW_HEIGHT = 100
+MAX_SPAN_COUNT = 20_000
+SAMPLE_ROWS = 75
 
 
 def _pd_axis(df: Any, horizontal: bool) -> pd.Index | None:
@@ -51,10 +54,9 @@ class DataTableView(widgets.TableView):
         self.setAlternatingRowColors(True)
         self.set_scroll_mode("pixel")
         self.set_margin(0)
-        self.set_delegate("no_focus")
         self.set_scrollbar_policy("always_off")
         self.setWordWrap(False)  # single-line cells (row height assumes it)
-        self.set_delegate("editor")
+        self.setItemDelegate(_viewer_style.DataCellDelegate(self))
         self.set_size_policy("expanding", "expanding")
         self.set_model(pandasmodels.DataFrameModel(df, parent=self))
 
@@ -152,16 +154,21 @@ class DataFrameViewer(widgets.Widget):
         *,
         sortable: bool = True,
         sort_mode: SortMode = "copy",
+        dtype_icons: bool = True,
         **kwargs,
     ) -> None:
         """Pass a DataFrameHolder to share the frame with other models / widgets."""
         super().__init__(**kwargs)
+        if not self.objectName():
+            self.setObjectName("cutepandas_dataframe_viewer")
         # Indicates whether the widget has been shown yet. Set to True in showEvent.
         self._loaded = False
         self._sortable = sortable
+        self._dtype_icons = dtype_icons
         self._sort_state: tuple[int, bool] | None = None
         self._sort_request = 0
         self._sorting = False
+        self._autosized_cols: set[int] = set()
         self._permutation_ready.connect(self._on_permutation_ready)
         if isinstance(df, DataFrameHolder):
             self.holder = df
@@ -176,7 +183,11 @@ class DataFrameViewer(widgets.Widget):
             self._on_selection_changed
         )
         # Create headers
-        self.table_columns = HeaderView(orientation=constants.HORIZONTAL, parent=self)
+        self.table_columns = HeaderView(
+            orientation=constants.HORIZONTAL,
+            parent=self,
+            show_dtype_icons=dtype_icons,
+        )
         self.table_columns.clicked.connect(self.on_clicked)
 
         self.table_index = HeaderView(orientation=constants.VERTICAL, parent=self)
@@ -193,6 +204,7 @@ class DataFrameViewer(widgets.Widget):
         self.table_data.h_scrollbar.valueChanged.connect(
             self.table_columns.h_scrollbar.setValue
         )
+        self.table_data.h_scrollbar.valueChanged.connect(self._autosize_visible_columns)
         self.table_data.v_scrollbar.valueChanged.connect(
             self.table_index.v_scrollbar.setValue
         )
@@ -212,13 +224,15 @@ class DataFrameViewer(widgets.Widget):
         #       table index             | TrackingSpacer
         #       Table Index             | Table Data      | V Scrollbar
         #            |  Tracking Spacer  |H Scrollbar
+        self._top_spacer = TrackingSpacer(ref_y=self.table_index.h_header)
+        self._bottom_spacer = TrackingSpacer(ref_x=self.table_columns.v_header)
         self.layout_grid[0, 0] = widgets.SpacerItem(0, 0, "expanding", "expanding")
         self.layout_grid[0, 1:2] = self.table_columns
         self.layout_grid[1:2, 0:1] = self.table_index
-        self.layout_grid[1, 2] = TrackingSpacer(ref_y=self.table_index.h_header)
+        self.layout_grid[1, 2] = self._top_spacer
         self.layout_grid[2, 2] = self.table_data
         self.layout_grid[2, 3] = self.table_data.v_scrollbar
-        self.layout_grid[3, 1] = TrackingSpacer(ref_x=self.table_columns.v_header)
+        self.layout_grid[3, 1] = self._bottom_spacer
         self.layout_grid[3, 2] = self.table_data.h_scrollbar
 
         # The data table takes all extra space, so the viewer fills its parent
@@ -229,11 +243,53 @@ class DataFrameViewer(widgets.Widget):
         self.layout_grid.setAlignment(self.table_columns, constants.ALIGN_LEFT)
         self.layout_grid.setAlignment(self.table_index, constants.ALIGN_TOP)
 
+        self._apply_style()
+
         # Connected after the models were created, so they are reset before
         # the header layout gets rebuilt.
         self.holder.changed.connect(self._on_df_changed)
         self.holder.row_order_changed.connect(self._on_row_order_changed)
         self._on_df_changed()
+
+    def _apply_style(self):
+        if getattr(self, "_applying_style", False):
+            return
+        self._applying_style = True
+        try:
+            colors = _viewer_style.ViewerColors.from_palette(
+                widgets.QApplication.palette(self.table_data)
+            )
+            _viewer_style.apply_composite_frame_style(self, colors)
+            _viewer_style.apply_data_table_style(self.table_data, colors)
+            _viewer_style.apply_header_table_style(
+                self.table_columns, colors, constants.HORIZONTAL
+            )
+            _viewer_style.apply_header_table_style(
+                self.table_index, colors, constants.VERTICAL
+            )
+            data_delegate = self.table_data.itemDelegate()
+            if isinstance(data_delegate, _viewer_style.DataCellDelegate):
+                data_delegate.set_colors(colors)
+            for view in (self.table_columns, self.table_index):
+                delegate = view.itemDelegate()
+                if isinstance(delegate, _viewer_style.HeaderCellDelegate):
+                    delegate.set_colors(colors)
+            div = _viewer_style._hex(colors.divider)
+            bg = _viewer_style._hex(colors.header_outer_bg)
+            self._top_spacer.setStyleSheet(
+                f"QFrame {{ background-color: {bg}; border: none;"
+                f" border-bottom: 1px solid {div}; }}"
+            )
+            self._bottom_spacer.setStyleSheet(
+                f"QFrame {{ background-color: {bg}; border: none; }}"
+            )
+        finally:
+            self._applying_style = False
+
+    def changeEvent(self, event: core.QEvent):
+        super().changeEvent(event)
+        if event.type() == core.QEvent.Type.PaletteChange:
+            self._apply_style()
 
     @property
     def df(self) -> Any:
@@ -257,6 +313,7 @@ class DataFrameViewer(widgets.Widget):
         """Rebuild header spans and sizes for the holder's current frame."""
         df = self.df
         self._sort_state = None
+        self._autosized_cols.clear()
         self.table_columns.refresh()
         self.table_index.refresh()
         # Only show the level-name headers if there are level names
@@ -317,8 +374,11 @@ class DataFrameViewer(widgets.Widget):
     #     self.table_index._on_selection_changed(selected, deselected)
 
     def on_clicked(self, ix: core.QModelIndex):
-        """Request a sort by the clicked column; the same column again reverses."""
-        if self.df is None or not ix.isValid():
+        """Request a sort by the clicked leaf column; clicking again reverses."""
+        col_model = self.table_columns.model()
+        if self.df is None or not ix.isValid() or col_model is None:
+            return
+        if ix.row() != col_model.rowCount() - 1:
             return
         col = ix.column()
         ascending = self._sort_state != (col, True)
@@ -382,6 +442,7 @@ class DataFrameViewer(widgets.Widget):
         self.cancel_sort()
         self.table_data.get_model(skip_proxies=True).clear_sort()
         self._sort_state = None
+        self.table_columns.viewport().update()
 
     def set_sort_state(
         self, column: int | None, order: constants.SortOrder | None = None
@@ -395,6 +456,7 @@ class DataFrameViewer(widgets.Widget):
             self._sort_state = None
         else:
             self._sort_state = (column, order != constants.DESCENDING)
+        self.table_columns.viewport().update()
 
     def get_sort_state(self) -> tuple[int, constants.SortOrder] | None:
         """(column, order) of the current sort, None if unsorted."""
@@ -430,13 +492,28 @@ class DataFrameViewer(widgets.Widget):
         columns = min(self.table_data.model().columnCount(), n)
         for column_index in range(columns):
             self.auto_size_column(column_index)
-        # Cells do not wrap, so a row is one line of text (index labels may be taller).
-        height = self.table_data.fontMetrics().height() + ROW_PADDING
-        for row_index in range(min(self.table_index.model().rowCount(), n)):
-            height = max(height, self.table_index.sizeHintForRow(row_index))
-        height = min(height, MAX_ROW_HEIGHT)
+        # Cells do not wrap, so a row is one line of text.
+        height = min(self.table_data.fontMetrics().height() + ROW_PADDING, MAX_ROW_HEIGHT)
         self.table_index.v_header.setDefaultSectionSize(height)
         self.table_data.v_header.setDefaultSectionSize(height)
+
+    def _autosize_visible_columns(self, _value: int = 0):
+        """Lazily auto-size wide-frame columns as they scroll into view."""
+        model = self.table_data.model()
+        if model is None:
+            return
+        col_count = model.columnCount()
+        if len(self._autosized_cols) >= col_count:
+            return
+        vp_width = self.table_data.viewport().width()
+        first = self.table_data.columnAt(0)
+        if first < 0:
+            return
+        last = self.table_data.columnAt(max(0, vp_width - 1))
+        end = col_count if last < 0 else min(col_count, last + 1)
+        for col in range(first, end):
+            if col not in self._autosized_cols:
+                self.auto_size_column(col)
 
     def on_column_selection_changed(self, selected, deselected):
         if not self.table_columns.hasFocus():
@@ -483,28 +560,33 @@ class DataFrameViewer(widgets.Widget):
 
     def auto_size_column(self, column_index: int):
         """Set the size of column at column_index to fit its contents."""
-        padding = 20
+        self._autosized_cols.add(column_index)
+        col_model = self.table_columns.model()
+        data_model = self.table_data.model()
+        if col_model is None or data_model is None:
+            return
 
-        self.table_columns.resizeColumnToContents(column_index)
-        width = self.table_columns.columnWidth(column_index)
+        header_font = gui.Font(self.table_columns.font())
+        header_font.set_weight("demi_bold")
+        header_metrics = gui.FontMetrics(header_font)
+        header_extra = _viewer_style.HEADER_HPAD * 2 + _viewer_style.SORT_ARROW_SPACE
+        if self._dtype_icons:
+            header_extra += 20
 
-        # Iterate over the column's rows and check the width of each
-        # to determine the max width for the column
-        # Only check the first N rows for performance. If there is larger
-        # content in cells below it will be cut off
-        N = 75
-        rows = min(self.table_data.model().rowCount(), N)
+        width = 60
+        for r in range(col_model.rowCount()):
+            txt = str(col_model.data(col_model.index(r, column_index)) or "")
+            width = max(width, header_metrics.horizontalAdvance(txt) + header_extra)
+
+        # Only check the first SAMPLE_ROWS rows for O(1) performance.
+        rows = min(data_model.rowCount(), SAMPLE_ROWS)
+        cell_metrics = self.table_data.fontMetrics()
+        cell_pad = _viewer_style.CELL_HPAD * 2 + 12
         for i in range(rows):
-            mi = self.table_data.model().index(i, column_index)
-            text = self.table_data.model().data(mi)
-            text = str(text)  # TODO: get rid of casting?
-            w = self.table_data.fontMetrics().boundingRect(text).width()
+            mi = data_model.index(i, column_index)
+            text = str(data_model.data(mi) or "")
+            width = max(width, cell_metrics.horizontalAdvance(text) + cell_pad)
 
-            width = max(width, w)
-
-        width += padding
-
-        # add maximum allowable column width so column is never too big.
         max_allowable_width = 400
         width = min(width, max_allowable_width)
 
@@ -565,7 +647,13 @@ class DataFrameViewer(widgets.Widget):
 class HeaderView(custom_widgets.OrientedTableView):
     """Displays the DataFrame index or columns depending on orientation."""
 
-    def __init__(self, parent: DataFrameViewer, orientation: constants.Orientation):
+    def __init__(
+        self,
+        parent: DataFrameViewer,
+        orientation: constants.Orientation,
+        *,
+        show_dtype_icons: bool = False,
+    ):
         super().__init__(orientation, parent=parent)
 
         self.table = parent.table_data
@@ -585,20 +673,32 @@ class HeaderView(custom_widgets.OrientedTableView):
         self.set_horizontal_scrollbar_policy("always_off")
         self.set_scroll_mode("pixel")
         self.set_margin(0)
-        self.set_delegate("no_focus")
+
+        def _kind_for_col(col: int):
+            cols = self.table.get_model(skip_proxies=True).column_info
+            return cols[col].kind if 0 <= col < len(cols) else None
+
+        self.setItemDelegate(
+            _viewer_style.HeaderCellDelegate(
+                orientation,
+                self,
+                sort_state_getter=parent.get_sort_state if self.is_horizontal() else None,
+                kind_getter=_kind_for_col if self.is_horizontal() else None,
+                show_dtype_icons=show_dtype_icons and self.is_horizontal(),
+            )
+        )
 
         # Orientation specific settings
         if self.is_horizontal():
             self.set_horizontal_scrollbar_policy("always_off")
             self.h_header.hide()
-            self.v_header.setDisabled(True)
+            self.v_header.setSectionsClickable(False)
             # Selection lags without this
             self.v_header.setHighlightSections(False)
-
         else:
             self.set_vertical_scrollbar_policy("always_off")
             self.v_header.hide()
-            self.h_header.setDisabled(True)
+            self.h_header.setSectionsClickable(False)
             self.h_header.setHighlightSections(False)
         if self.is_horizontal():
             model = pandasmodels.HorizontalHeaderModel(parent.holder, parent=self)
@@ -655,23 +755,38 @@ class HeaderView(custom_widgets.OrientedTableView):
                     ix2 = self.model().index(ix.row(), col)
                     self.setSelection(self.visualRect(ix2), SelectionFlag.Select)
 
-    # Fits columns to contents but with a minimum width and added padding
+    # Fits columns to contents in O(1) time (bounded sample + last row for index width)
     def init_size(self):
-        padding = 20
-        self.resizeColumnsToContents()
-        colcount = min(self.model().columnCount(), 100)
+        model = self.model()
+        if model is None:
+            return
+        metrics = self.fontMetrics()
+        pad = _viewer_style.HEADER_HPAD * 2 + 12
+        colcount = min(model.columnCount(), 50)
         if self.is_horizontal():
-            min_size = 100
+            min_size = 80
             for col in range(colcount):
-                width = self.columnWidth(col)
-                new_width = max(width + padding, min_size)
-                self.setColumnWidth(col, new_width)
-                self.table.setColumnWidth(col, new_width)
+                width = min_size
+                for row in range(model.rowCount()):
+                    txt = str(model.data(model.index(row, col)) or "")
+                    width = max(width, metrics.horizontalAdvance(txt) + pad)
+                self.setColumnWidth(col, width)
+                self.table.setColumnWidth(col, width)
         else:
-            # max_size = 1000
-            for col in range(colcount):
-                width = self.columnWidth(col)
-                self.setColumnWidth(col, width + padding)
+            row_count = model.rowCount()
+            sample = list(range(min(row_count, SAMPLE_ROWS)))
+            if row_count > SAMPLE_ROWS:
+                sample.append(row_count - 1)  # fit widest trailing row number
+            for col in range(model.columnCount()):
+                hdr = str(
+                    model.headerData(col, constants.HORIZONTAL, constants.DISPLAY_ROLE)
+                    or ""
+                )
+                width = max(36, metrics.horizontalAdvance(hdr) + pad)
+                for row in sample:
+                    txt = str(model.data(model.index(row, col)) or "")
+                    width = max(width, metrics.horizontalAdvance(txt) + pad)
+                self.setColumnWidth(col, min(width, 400))
 
     # This sets spans to group together adjacent cells with the same values
     def set_spans(self):
@@ -691,13 +806,18 @@ class HeaderView(custom_widgets.OrientedTableView):
         else:
             levels = [pd.factorize(index, use_na_sentinel=False)[0]]
         boundary = np.zeros(len(index) - 1, dtype=bool)  # True: i and i+1 differ
+        span_count = 0
         for level, codes in enumerate(levels):
             boundary |= codes[:-1] != codes[1:]
             starts = np.concatenate(([0], np.flatnonzero(boundary) + 1))
             lengths = np.diff(np.append(starts, len(index)))
-            # Only ranges longer than one cell need a span: no Python loop over
-            # every row of a long, unique index.
-            for start, length in zip(starts[lengths > 1], lengths[lengths > 1]):
+            mask = lengths > 1
+            span_count += int(mask.sum())
+            if span_count > MAX_SPAN_COUNT:
+                # QTableView's internal span list degrades on tens of thousands of spans.
+                self.clearSpans()
+                return
+            for start, length in zip(starts[mask], lengths[mask]):
                 self.set_section_span(level, int(start), int(length))
 
     def eventFilter(self, source: core.QObject, event: core.QEvent):
@@ -759,8 +879,8 @@ class HeaderView(custom_widgets.OrientedTableView):
         if self.is_horizontal():
             # Width of DataTableView
             width = self.table.sizeHint().width() + self.v_header.width()
-            # Height
-            height = 2 * self.frameWidth()  # Account for border & padding
+            # Height (+1 for the bottom divider border)
+            height = 2 * self.frameWidth() + 1
             max_rows = min(100, self.model().rowCount())
             for i in range(max_rows):
                 height += self.rowHeight(i)
@@ -769,8 +889,8 @@ class HeaderView(custom_widgets.OrientedTableView):
         else:
             # Height of DataTableView
             height = self.table.sizeHint().height() + self.h_header.height()
-            # Width
-            width = 2 * self.frameWidth()  # Account for border & padding
+            # Width (+1 for the right divider border)
+            width = 2 * self.frameWidth() + 1
             max_cols = min(100, self.model().columnCount())
             for i in range(max_cols):
                 width += self.columnWidth(i)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pandas as pd
-from prettyqt import core, gui, widgets
+from prettyqt import constants, core, gui, widgets
 
 from cutepandas import pandaswidgets
 from cutepandas.pandasmodels import DataFrameHolder
@@ -171,3 +171,57 @@ def test_dataframeviewer_index_header_after_set_df(qtbot):
     qtbot.wait(50)
     index = viewer.table_index
     assert index.width() >= index.columnWidth(0) > 0
+
+
+def test_simple_dataframe_viewer(qtbot):
+    df = pd.DataFrame(
+        {"a": [3, 1, 2], "b": ["x", None, "z"]},
+        index=pd.Index(["r0", "r1", "r2"], name="row_id"),
+    )
+    viewer = pandaswidgets.SimpleDataFrameViewer(df)
+    qtbot.addWidget(viewer)
+    viewer.show()
+    assert viewer.model().rowCount() == 3
+    assert viewer.model().headerData(0, constants.VERTICAL) == "r0"
+    viewer.sort_by(0, constants.ASCENDING)
+    assert viewer.get_sort_state() == (0, constants.ASCENDING)
+    assert [viewer.model().data(viewer.model().index(r, 0)) for r in range(3)] == [
+        "1",
+        "2",
+        "3",
+    ]
+    viewer.selectAll()
+    viewer.copy()
+    assert gui.GuiApplication.clipboard().text().splitlines() == [
+        "1\t",
+        "2\tz",
+        "3\tx",
+    ]
+
+
+def test_grid_dataframe_viewer_spans_and_sort(qtbot):
+    index = pd.MultiIndex.from_tuples(
+        [("a", 1), ("a", 1), ("b", 1), ("b", 2)], names=["grp", "sub"]
+    )
+    cols = pd.MultiIndex.from_tuples([("m", "x"), ("m", "y")], names=["metric", "var"])
+    df = pd.DataFrame([[3, 10], [1, 20], [4, 30], [2, 40]], index=index, columns=cols)
+    viewer = pandaswidgets.GridDataFrameViewer(df)
+    qtbot.addWidget(viewer)
+    viewer.show()
+    assert viewer.table_index.rowSpan(0, 0) == 2
+    assert viewer.table_index.rowSpan(2, 0) == 2
+    assert viewer.table_header.columnSpan(0, 0) == 2
+    assert viewer.table_level.model().data(viewer.table_level.model().index(1, 1)) == (
+        "sub / var"
+    )
+    viewer.table_header.clicked.emit(viewer.table_header.model().index(1, 0))
+    assert viewer.get_sort_state() == (0, constants.ASCENDING)
+    model = viewer.table_data.model()
+    assert [model.data(model.index(r, 0)) for r in range(4)] == ["1", "2", "3", "4"]
+
+
+def test_grid_dataframe_viewer_empty_then_set(qtbot, df):
+    viewer = pandaswidgets.GridDataFrameViewer()
+    qtbot.addWidget(viewer)
+    viewer.set_df(df)
+    assert viewer.table_data.model().rowCount() == 3
