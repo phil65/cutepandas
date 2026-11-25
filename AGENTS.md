@@ -20,6 +20,7 @@ Flat package layout (no `src/`): the package lives in `cutepandas/`.
     `fetch(start, stop, cols)` -> `ColumnChunk` (Python values + null mask),
     `fetch_arrow`, `null_count`, `nbytes`, `value_range`, `value_counts`,
     `categories`, `describe` -> `ColumnStats`), optional `SortableSource` /
+    `PermutableSource` (`argsort`, `fetch_rows`: display-only sort) /
     `EditableSource`, the `Kind` enum (dtype family).
   - `pandassource.py`, `arrowsource.py`, `polarssource.py`: adapters + dtype -> `Kind`
     mapping. `frames.as_source(obj)` picks the adapter.
@@ -57,7 +58,9 @@ Flat package layout (no `src/`): the package lives in `cutepandas/`.
   - `dataframemanagerwidget.py`: `DataFrameManagerWidget` (list + `DataFrameWidget`).
 - `cutepandas/qtframe/qtframe.py`: experimental `QtFrame` DataFrame subclass that emits a
   Qt signal when an operation changes the shape. Not exported.
-- `cutepandas/utils/`: `icons.py` (dtype / `Kind` / index to icon), `helpers.py`.
+- `cutepandas/utils/`: `icons.py` (dtype / `Kind` / index to icon), `helpers.py`,
+  `i18n.py` (`N_` marker, `TranslateMixin` / `TranslatableHeaderMixin`: labels go
+  through an optional `translate` callable, `retranslate()` re-shows them).
 - `cutepandas/constants/iconnames.py`: icon name constants.
 
 Models keep the frame on `self.df` (native) and `self.source` (adapter); views find it
@@ -72,8 +75,18 @@ the new frame completely before assigning it; changing it in place (`df.index = 
 `df[col] = ...`) notifies nobody. Cell edits via `EditableSource.set_value` are the one
 in-place exception (other `DataFrameModel`s on the same holder keep stale cache blocks).
 
+Sorting: `DataFrameModel(sort_mode="copy")` replaces the frame by a sorted copy;
+`sort_mode="permutation"` stores a row order (`DataFrameHolder.row_order`, cleared when
+the frame is replaced) that `DataFrameModel` / `VerticalHeaderModel` read through.
+`DataFrameViewer(sortable=False)` only emits `sort_requested`; in permutation mode the
+viewer computes the order in a worker thread (latest request wins, stale results are
+dropped via the model's data generation).
+
+New fixed English labels: mark them with `N_` and show them via `self._tr(...)`.
+
 Threads: Qt methods, holder and widgets on the GUI thread; `DataFrameModel.prefetch`,
-`ChunkCache` and `FrameSource` reads on any thread. No module-level mutable state.
+`compute_sort_permutation`, `ChunkCache` and `FrameSource` reads on any thread. No
+module-level mutable state.
 
 ## Where to look
 

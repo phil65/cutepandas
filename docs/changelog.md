@@ -1,3 +1,24 @@
+## v0.6.0 (2026-11-25)
+
+### Feat
+
+- `DataFrameViewer(sortable=..., sort_mode=...)` and the `sort_requested(column, order)`
+  signal: with `sortable=False` a header click only requests the sort, so an
+  application can sort under its own control (`set_sort_state()` restores the
+  indicator)
+- display-only sort (`sort_mode="permutation"`, opt-in): a row order of 8 bytes per row
+  in `DataFrameHolder.row_order` instead of a sorted copy of the frame; computed in a
+  worker thread by the viewer (`sorting_changed`, `cancel_sort()`, latest request wins,
+  stale orders dropped); `DataFrameModel.compute_sort_permutation()` /
+  `apply_sort_permutation()` / `source_row()` / `clear_sort()`
+- `PermutableSource` hook (`argsort`, `fetch_rows`) for the pandas, pyarrow and polars
+  sources; pandas sorts NumPy columns with NumPy and Arrow-backed columns with Arrow's
+  sort kernel
+- translatable labels: `translate=` / `set_translate()` / `retranslate()` on
+  `SchemaModel`, `PandasColumnListModel`, `PandasIndexListModel`, `CategoryModel`,
+  `TopValuesModel`, `ColumnProfileWidget` and `DataFrameWidget`; English labels marked
+  with `cutepandas.utils.i18n.N_` for catalog extraction
+
 ## v0.5.0 (2026-11-25)
 
 ### Feat

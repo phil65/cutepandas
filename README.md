@@ -69,6 +69,7 @@ a polars frame is passed):
 | `fetch_arrow(start, stop, columns)` | the same window as a `pyarrow.Table` |
 | `null_count`, `nbytes`, `value_range`, `value_counts`, `categories`, `describe` | column metadata and statistics |
 | `sort(column, descending)` (optional, `SortableSource`) | a sorted copy (stable, nulls last) |
+| `argsort(column, descending)`, `fetch_rows(rows, columns)` (optional, `PermutableSource`) | sort order as row positions; a window in any row order |
 | `set_value(row, column, value)` (optional, `EditableSource`) | in-place cell edit |
 
 `Kind` groups the backend dtypes (integer, float, string, categorical, datetime, ...) and
@@ -101,11 +102,55 @@ random positions, cold cache: median 4.5 ms, p95 8 ms, max 11 ms for pandas, pya
 and polars alike. The full cache (256 blocks) adds about 9 MB. With `color_values`, the
 first paint scans each numeric column once for its range (0.04-0.4 s on 10M rows).
 
+### Sorting
+
+A header click in `DataFrameViewer` emits `sort_requested(column, order)` (a
+`Qt.SortOrder`; the same column again reverses). What happens next:
+
+- `sortable=False`: nothing else. The application sorts under its own control (e.g.
+  within a memory budget, or as a step of a pipeline), shows the result with
+  `set_df()` and restores the indicator with `set_sort_state(column, order)`.
+- `sortable=True` (default) and `sort_mode="copy"` (default): the source builds a sorted
+  copy (`SortableSource.sort`) that replaces the frame, as large as the frame itself.
+- `sortable=True` and `sort_mode="permutation"`: a display-only sort. The source
+  computes the order as row positions (`PermutableSource.argsort`; 8 bytes per row),
+  stored as `DataFrameHolder.row_order`; the frame is neither copied nor changed and
+  every visible block is read through the order (`fetch_rows`). The order is computed
+  in a worker thread (`sorting_changed(True / False)`); only the latest request is
+  applied, only if the frame was not replaced or edited meanwhile, and
+  `cancel_sort()` drops a running one. Replacing the frame or `clear_sort()` restores
+  the frame's order; row labels follow the order (MultiIndex spans are off while
+  sorted).
+
+The building blocks are public: `DataFrameModel.compute_sort_permutation(column,
+order)` (any thread) returns a `SortPermutation`, `apply_sort_permutation()` (GUI
+thread) applies it or returns False if it is stale, `source_row(row)` maps a model row
+to a frame row. Sort orders are stable with nulls last; pandas uses NumPy's stable
+argsort for NumPy dtypes and Arrow's sort kernel for Arrow-backed columns (incl. the
+pandas 3 `str` dtype), pyarrow Arrow's sort kernel, polars its own (multi-threaded)
+sort.
+
+Measured on 10M rows (one column sorted, descending): computing the order takes
+1.6 s (int) / 2.1 s (float) / 6.1 s (str) for pandas, 1.8 / 2.2 / 4.9 s for pyarrow and
+0.35 / 0.33 / 1.3 s for polars; the order takes 80 MB. A cold 60 x 3 viewport read
+through it: median 0.8-1.2 ms, max 3.3 ms on every backend.
+
+### Translations
+
+cutepandas ships English labels only. `SchemaModel`, `PandasColumnListModel`,
+`PandasIndexListModel`, `CategoryModel`, `TopValuesModel`, `ColumnProfileWidget` and
+`DataFrameWidget` take `translate=` (a `str -> str` callable such as a gettext
+function) and look each label up when they show it; `set_translate()` swaps it and
+`retranslate()` re-shows the labels after a language switch. The English labels are
+marked with `cutepandas.utils.i18n.N_`, so `xgettext --keyword=N_` (or babel
+`-k N_`) extracts them for a catalog.
+
 ### Threads
 
 - GUI thread only: every Qt method of the models (`data`, `setData`, `sort`, assigning
   `df`, the setters), `DataFrameHolder`, all widgets, `ColumnProfileWidget.set_stats`.
-- Any thread: `DataFrameModel.prefetch(first_row, last_row, columns)` (fills the cache,
+- Any thread: `DataFrameModel.compute_sort_permutation`,
+  `DataFrameModel.prefetch(first_row, last_row, columns)` (fills the cache,
   e.g. ahead of scrolling), the `ChunkCache` (all mutations under a lock; `clear()` /
   `invalidate()` start a new generation so a block built from old data is dropped) and
   the read methods of a `FrameSource` (`fetch`, `describe`, ...; e.g. compute column
