@@ -41,6 +41,8 @@ MAX_COLUMN_WIDTH = 400
 AUTOSIZE_COLUMNS = 50
 # Rows measured to fit a column (bounded: O(1) in the frame length).
 SAMPLE_ROWS = 75
+# Fonts kept per (base font, weight, italic) before the cache starts over.
+_MAX_CACHED_FONTS = 32
 
 
 def sample_rows(row_count: int) -> list[int]:
@@ -274,7 +276,8 @@ class _FontCache:
     def get(self, base: gui.QFont, weight: str | None, italic: bool = False) -> Any:
         key = (base.key(), weight or "", italic)
         if (font := self._fonts.get(key)) is None:
-            if len(self._fonts) > 32:  # the base font changed often: start over
+            # the base font changed often: start over
+            if len(self._fonts) > _MAX_CACHED_FONTS:
                 self._fonts.clear()
             font = gui.Font(base)
             if weight is not None:

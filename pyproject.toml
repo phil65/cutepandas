@@ -1,3 +1,5 @@
+#:tombi schema.strict = false
+
 [project]
 name = "cutepandas"
 version = "0.7.0"
@@ -6,7 +8,9 @@ readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
 license-files = ["LICENSE"]
-authors = [{ name = "phil65", email = "philipptemminghoff@googlemail.com" }]
+authors = [
+  { name = "Philipp Temminghoff", email = "philipptemminghoff@googlemail.com" },
+]
 keywords = [
   "dataframe",
   "gui",
@@ -34,11 +38,18 @@ classifiers = [
   "Topic :: Software Development :: User Interfaces",
   "Typing :: Typed",
 ]
-dependencies = ["numpy>=2.5.5", "pandas>=3.1.1", "prettyqt>=1.61.4", "pyarrow>=26.0.1"]
+dependencies = [
+  # Only add below (Copier)
+  # The Qt binding is a selectable extra (pyside6 / pyqt6), not a hard dependency.
+  "numpy>=2.5.5",
+  "pandas>=3.1.1",
+  "prettyqt>=1.61.4",
+  "pyarrow>=26.0.1",
+]
 
 [project.urls]
+"Code coverage" = "https://app.codecov.io/gh/phil65/cutepandas"
 Documentation = "https://phil65.github.io/cutepandas/"
-Homepage = "https://github.com/phil65/cutepandas"
 Issues = "https://github.com/phil65/cutepandas/issues"
 Source = "https://github.com/phil65/cutepandas"
 
@@ -50,31 +61,34 @@ pyside6 = ["pyside6>=6.12.0"]
 
 [dependency-groups]
 dev = [
+  # Only add below (Copier)
   "commitizen>=4.19.4",
-  "deptry>=0.25.1",
+  "deptry",
   "devtools",
-  "pytest>=9.2.0",
+  "pyreadline3",
+  "pytest",
   "pytest-cov",
-  "pytest-qt>=4.5.0",
+  "pytest-qt",
   "types-Deprecated",
   "types-docutils",
   "types-orjson",
 ]
+benchmark = ["pyinstrument"]
 docs = [
-  # mknodes >= 4 includes the site generator (formerly mkdocs-mknodes)
+  "mkdocstrings[python]",
   "mknodes>=4.0.0",
-  # Zensical renders the API pages' `:::` blocks through mkdocstrings
-  # (mknodes >= 3 no longer pulls it in).
-  "mkdocstrings[python]>=1.0",
+  # Only add below (Copier)
 ]
 lint = [
   # Pinned on purpose: CI, pre-commit and editors all run exactly these versions.
+  # Bump them here (template) and roll out via `copier update`.
   "ruff==0.17.6",
-  "ty==0.0.108",
+  "ty==0.0.110",
+  # Only add below (Copier)
 ]
 
 [build-system]
-requires = ["uv_build>=0.13.9,<0.14"]
+requires = ["uv_build>=0.8.22"]
 build-backend = "uv_build"
 
 [tool.commitizen]
@@ -85,6 +99,15 @@ update_changelog_on_bump = true
 changelog_start_rev = "v0.1.0"
 changelog_file = "docs/changelog.md"
 version_files = ["pyproject.toml:version"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "@overload",
+  "except ImportError",
+  'if __name__ == "__main__":',
+]
 
 [tool.deptry]
 extend_exclude = ["docs"]
@@ -101,6 +124,37 @@ DEP002 = [
   "pyside6",
 ]
 
+[tool.mknodes]
+allowed-commit-types = [
+  "fix",
+  "feat",
+  "refactor",
+  "docs",
+  "test",
+  "build",
+  "chore",
+]
+docstring-style = "google"
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.14"
+pythonPlatform = "All"
+typeCheckingMode = "basic"
+deprecateTypingAliases = true
+reportMissingTypeStubs = false
+reportUnusedCallResult = false
+reportUnknownVariableType = false
+reportAny = false
+reportImplicitOverride = false
+reportUnusedFunction = false
+reportImplicitStringConcatenation = false
+reportIgnoreCommentWithoutRule = false
+reportUnannotatedClassAttribute = false
+reportSelfClsParameterName = false
+reportPrivateImportUsage = false
+
 [tool.pytest]
 junit_family = "xunit2"
 log_cli = true
@@ -108,31 +162,33 @@ log_date_format = "%Y-%m-%d %H:%M:%S"
 log_format = "%(asctime)s %(levelname)s %(message)s"
 minversion = "9.0"
 testpaths = ["tests/"]
+asyncio_mode = "auto"
 qt_qapp_name = "cutepandas-test"
 qt_log_level_fail = "CRITICAL"
 
 [tool.ruff]
 line-length = 90
-extend-exclude = ["docs", "__init__.py", "prettyqt/qt/"]
+extend-exclude = ["docs"]
 target-version = "py314"
 
 [tool.ruff.lint]
+future-annotations = true
 select = [
-  # "A",    # Flake8-builtins
+  "A",  # Flake8-builtins
   # "ANN",  # Flake8-Annotations
   # "ASYNC",  # Flake8-Async
   # "ARG",  # # Flake8-Unused-Arguments
   "B",  # flake8-bugbear
-  # "BLE",  # Flake8-blind-except
+  "BLE",  # Flake8-blind-except
   "C",
   "C4",  # flake8-comprehensions
   # "C90",  # MCCabe
-  # "COM",  #  Flake8-commas
-  # "CPY", #  Copyright-related rules
+  "COM",  # Flake8-commas
+  # "CPY",  #  Copyright-related rules
   "D",  # PyDocStyle
   # "DTZ",  # Flake8- Datetimez
   "E",  # PyCodeStyle Error
-  # "EM",   # flake8-errmsg
+  "EM",  # flake8-errmsg
   # "ERA",  #  Eradicate
   "EXE",  # flake8-executable
   "F",  # PyFlakes
@@ -140,13 +196,13 @@ select = [
   # "FBT",  # flake8-boolean-trap
   # "FIX",  # flake8-fixme
   "FLY",  # flynt
-  # "G",    #  flake8-logging-format
+  "G",  # flake8-logging-format
   "I",  # ISort
   "ICN",  # Flake8-import-conventions
   "INP",  # flake8-no-pep420
   "INT",  # flake8-gettext
   "ISC",  # flake8-implicit-str-concat
-  # "N",    # pep8-naming
+  "N",  # pep8-naming
   # "NPY",  # numpy-specific rules
   # "PD",   # pandas-vet
   "PERF",  # perflint
@@ -155,25 +211,25 @@ select = [
   "PLE",  # PyLint Error
   "PLC",  # PyLint convention
   # "PLW",  # PyLint Warning
-  # "PLR",  # PyLint refactor
-  # "PT",   # flake8-pytest-style
+  "PLR",  # PyLint refactor
+  "PT",  # flake8-pytest-style
   "PTH",  # flake8-use-pathlib
   "PYI",  # flake8-pyi
-  # "Q",    # flake8-quotes
-  # "RET",  # flake8-return
+  "Q",  # flake8-quotes
+  "RET",  # flake8-return
   "RSE",  # flake8-raise
   "RUF",  # ruff-specific rules
   # "S",    # flake8-bandit
-  # "SIM",  # flake8-simplify
+  "SIM",  # flake8-simplify
   "SLF",  # flake8-self
   "SLOT",  # flake8-slots
   # "T",
   # "TD",   # flake8-todos
   "T10",  # flake8-debugger
   # "T20",  # flake8-print
-  # "TCH",  # flake8-type-checking
+  "TC",  # flake8-type-checking
   "TID",  # flake8-tidy-imports
-  # "TRY",  # tryceratops
+  "TRY",  # tryceratops
   "UP",  # PyUpgrade
   "W",  # PyCodeStyle warning
   "YTT",  # flake8-2020
@@ -182,6 +238,8 @@ ignore = [
   "C408",  # Unnecessary {obj_type} call (rewrite as a literal)
   "B905",  # zip() without an explicit strict= parameter
   "C901",  # {name} is too complex ({complexity} > {max_complexity})
+  "COM812",
+  # "CPY001", # Missing copyright notice at top of file
   "D100",  # Missing docstring in public module
   "D101",  # Missing docstring in public class
   "D102",  # Missing docstring in public method
@@ -202,13 +260,41 @@ ignore = [
   "D408",  # Section underline should be in the line following the section's name ("{name}")
   "D409",  # Section underline should match the length of its name ("{name}")
   "D413",  # Missing blank line after last section ("{name}")
+  "EM101",  # Exception must not use a string literal, assign to variable first
+  "EM102",  # Exception must not use an f-string literal, assign to variable first
+  "ISC001",
+  "PLC0415",
+  "PLR0912",  # Too many branches
+  "PLR0913",  # Too many arguments to function call
+  "PLR0915",  # Too many statements
+  "PLR0917",  # Too many positional arguments
+  # "PLR2004", # Magic values instead of named consts
   "SLF001",  # Private member accessed
-  "RUF012",  # Mutable class attributes should be annotated
-  "RUF013",  # PEP 484 prohibits implicit `Optional`
+  "TRY003",  # Avoid specifying long messages outside the exception class
+  "TC006",  # runtime-cast-value
+  # Project-specific (Qt): overrides keep Qt's camelCase names (rowCount, keyPressEvent).
+  "N802",  # Function name should be lowercase
+  # Qt data() / headerData() dispatch per role, dtype -> Kind mappers per type family.
+  "PLR0911",  # Too many return statements
 ]
 
 [tool.ruff.lint.flake8-quotes]
 docstring-quotes = "double"
+
+[tool.ruff.lint.flake8-type-checking]
+runtime-evaluated-base-classes = [
+  "pydantic.BaseModel",
+  "sqlalchemy.orm.DeclarativeBase",
+  "schemez.Schema",
+  "sqlmodel.SQLModel",
+]
+runtime-evaluated-decorators = [
+  "pydantic.validate_call",
+  "fastapi.FastAPI.get",
+  "fastapi.FastAPI.post",
+  "fastmcp.FastMCP.tool",
+  "typer.Typer.command",
+]
 
 [tool.ruff.lint.isort]
 lines-after-imports = 2
@@ -217,23 +303,53 @@ lines-after-imports = 2
 force-sort-within-sections = true
 combine-as-imports = true
 
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["E402", "I001"]
+"scripts/*" = ["INP001"]
+"duties.py" = ["E501"]  # template file, written for line length 100 (this repo: 90)
+"*tests/*" = ["D100", "PLR2004"]  # tests assert literal counts / sizes
+
 [tool.ruff.format]
-# Enable preview style formatting.
 preview = true
-docstring-code-format = true
 
 [tool.ty.environment]
 python-version = "3.14"
 python-platform = "all"
 
 [tool.ty.src]
-include = ["cutepandas"]
+# `ty check` (hooks, CI, editors) type-checks the package code only.
+include = ["src"]
+
+[tool.ty.analysis]
+# Optional dependencies that are not always installed, e.g. "numpy", "numpy.**".
+# Unresolved imports are errors otherwise, so broken imports are caught.
+allowed-unresolved-imports = []
 
 [tool.ty.rules]
+# Narrowing an overridden class attribute (e.g. pydantic discriminators,
+# `Config` attributes) is an intentional pattern.
 incompatible-mutable-override = "ignore"
 
 [tool.uv]
 default-groups = ["dev", "lint", "docs"]
 
 [tool.uv.build-backend]
-module-root = ""
+wheel-exclude = [
+  ".mypy_cache/**",
+  "__pycache__/**",
+  "*.pyc",
+  "*.pyo",
+  ".pytest_cache/**",
+  ".ruff_cache/**",
+]
+source-exclude = [
+  ".mypy_cache/**",
+  "__pycache__/**",
+  "*.pyc",
+  "*.pyo",
+  ".pytest_cache/**",
+  ".ruff_cache/**",
+]

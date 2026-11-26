@@ -43,7 +43,7 @@ def kind_of_dtype(dtype: Any) -> Kind:
     if isinstance(dtype, pa.DataType):
         return kind_for_arrow_type(dtype)
     if type(dtype).__module__.startswith("polars"):
-        from cutepandas.frames.polarssource import kind_for_polars_dtype  # noqa: PLC0415
+        from cutepandas.frames.polarssource import kind_for_polars_dtype
 
         return kind_for_polars_dtype(dtype)
     return kind_for_pandas_dtype(dtype)
@@ -58,7 +58,7 @@ def default_icon_color(palette: gui.QPalette | None = None) -> str | None:
 
     None without a QGuiApplication (the icon provider's default colour then).
     """
-    from prettyqt import gui  # noqa: PLC0415
+    from prettyqt import gui
 
     if palette is None:
         if gui.GuiApplication.instance() is None:
@@ -96,7 +96,7 @@ class KindIconCache:
 
     def icon(self, kind: Kind, color: str | None = None) -> gui.QIcon:
         if color is None:
-            from prettyqt import gui  # noqa: PLC0415
+            from prettyqt import gui
 
             key = (
                 gui.GuiApplication.palette().cacheKey()

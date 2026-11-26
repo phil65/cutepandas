@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from prettyqt import constants, core, iconprovider, itemmodels
 
@@ -30,7 +30,7 @@ class CategoryModel(
     once per frame (one `value_counts` scan).
     """
 
-    HEADER = [N_("Name"), N_("Code"), N_("Count")]
+    HEADER: ClassVar[list[str]] = [N_("Name"), N_("Code"), N_("Count")]
 
     def __init__(
         self,

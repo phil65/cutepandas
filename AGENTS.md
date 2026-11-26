@@ -6,16 +6,17 @@ CutePandas provides Qt item models, delegates and widgets for dataframes in Qt
 applications. pandas is the first-class backend (MultiIndex rows/columns, pyarrow-backed
 dtypes); the table / schema / category models also take pyarrow Tables and polars
 DataFrames. It is built on [prettyqt](https://github.com/phil65/prettyqt)
-(`from prettyqt import core, widgets, ...`), which wraps PySide6 or PyQt6. Not
-copier-managed: all files are hand-maintained. pyarrow is a core dependency; polars is
-the optional `polars` extra (never import it at module level outside
+(`from prettyqt import core, widgets, ...`), which wraps PySide6 or PyQt6. Managed
+with the copier-phil65 template (`.copier-answers.yml`, `libraries_use_qt: true`).
+pyarrow is a core dependency; polars is the optional `polars` extra (never import it at
+module level outside
 `frames/polarssource.py`).
 
 ## Architecture
 
-Flat package layout (no `src/`): the package lives in `cutepandas/`.
+src layout: the package lives in `src/cutepandas/`.
 
-- `cutepandas/frames/` (Qt-free): the backend-agnostic core.
+- `src/cutepandas/frames/` (Qt-free): the backend-agnostic core.
   - `source.py`: `FrameSource` protocol (`row_count`, `columns` -> `ColumnInfo`,
     `fetch(start, stop, cols)` -> `ColumnChunk` (Python values + null mask),
     `fetch_arrow`, `null_count`, `nbytes`, `value_range`, `value_counts`,
@@ -27,7 +28,7 @@ Flat package layout (no `src/`): the package lives in `cutepandas/`.
   - `formatters.py`: `FormatOptions`, per-`Kind` formatters, `format_chunk`.
   - `chunkcache.py`: `ChunkCache`, thread-safe LRU of (row block, column) -> chunk with
     generations (stale worker results are dropped).
-- `cutepandas/pandasmodels/`: Qt models (exported in `__init__.py`).
+- `src/cutepandas/pandasmodels/`: Qt models (exported in `__init__.py`).
   - `dataframemodel.py`: `DataFrameModel` (virtual, any backend, windowed chunk cache,
     `color_values`, `NormalizedRole`, `prefetch()` for workers),
     `VerticalHeaderModel` / `HorizontalHeaderModel` (one cell per pandas index level;
@@ -45,9 +46,9 @@ Flat package layout (no `src/`): the package lives in `cutepandas/`.
     via a NumPy boolean mask (`compute_filter`) plus row mapping instead of
     `QSortFilterProxyModel`; any structural change of the source recomputes the mask.
     pandas only.
-- `cutepandas/delegates/`: `DTypeDelegate` (dtype combo box), `ValueColorDelegate`
+- `src/cutepandas/delegates/`: `DTypeDelegate` (dtype combo box), `ValueColorDelegate`
   (data bar / heat map from `NormalizedRole`).
-- `cutepandas/pandaswidgets/`: widgets (exported in `__init__.py`).
+- `src/cutepandas/pandaswidgets/`: widgets (exported in `__init__.py`).
   - `dataframeviewer.py`: `DataFrameViewer`, a composite of data table + column header +
     index header (`HeaderView`, a prettyqt `OrientedTableView`) kept in sync on
     scroll/resize/selection; supports MultiIndex spans (pandas, `axis_spans()`), any
@@ -70,12 +71,12 @@ Flat package layout (no `src/`): the package lives in `cutepandas/`.
     index list, column list, categories, column profile and `df.attrs`).
   - `dataframelistwidget.py`: `DataFrameListWidget` (table of several DataFrames).
   - `dataframemanagerwidget.py`: `DataFrameManagerWidget` (list + `DataFrameWidget`).
-- `cutepandas/qtframe/qtframe.py`: experimental `QtFrame` DataFrame subclass that emits a
+- `src/cutepandas/qtframe/qtframe.py`: experimental `QtFrame` DataFrame subclass that emits a
   Qt signal when an operation changes the shape. Not exported.
-- `cutepandas/utils/`: `icons.py` (dtype / `Kind` / index to icon), `helpers.py`,
+- `src/cutepandas/utils/`: `icons.py` (dtype / `Kind` / index to icon), `helpers.py`,
   `i18n.py` (`N_` marker, `TranslateMixin` / `TranslatableHeaderMixin`: labels go
   through an optional `translate` callable, `retranslate()` re-shows them).
-- `cutepandas/constants/iconnames.py`: icon name constants.
+- `src/cutepandas/constants/iconnames.py`: icon name constants.
 
 Models keep the frame on `self.df` (native) and `self.source` (adapter); views find it
 through `view.get_model(skip_proxies=True).df`.
@@ -107,15 +108,15 @@ module-level mutable state.
 
 | Task | Location |
 | --- | --- |
-| Cell display / editing / roles | `cutepandas/pandasmodels/dataframemodel.py` |
-| Backend adapters, dtype kinds | `cutepandas/frames/` |
-| Value formatting | `cutepandas/frames/formatters.py` |
-| Fast filtering | `cutepandas/pandasmodels/pandasindexfilterproxymodel.py` |
-| MultiIndex header rendering, synced scrolling | `cutepandas/pandaswidgets/dataframeviewer.py`, `gridviewer.py` |
-| Viewer colours, cell / header painting | `cutepandas/pandaswidgets/_viewer_style.py` |
-| Header-click sorting | `cutepandas/pandaswidgets/sortcontroller.py` |
-| Explorer window with docks | `cutepandas/pandaswidgets/dataframewidget.py` |
-| Dtype icons / delegates | `cutepandas/utils/icons.py`, `cutepandas/delegates/` |
+| Cell display / editing / roles | `src/cutepandas/pandasmodels/dataframemodel.py` |
+| Backend adapters, dtype kinds | `src/cutepandas/frames/` |
+| Value formatting | `src/cutepandas/frames/formatters.py` |
+| Fast filtering | `src/cutepandas/pandasmodels/pandasindexfilterproxymodel.py` |
+| MultiIndex header rendering, synced scrolling | `src/cutepandas/pandaswidgets/dataframeviewer.py`, `gridviewer.py` |
+| Viewer colours, cell / header painting | `src/cutepandas/pandaswidgets/_viewer_style.py` |
+| Header-click sorting | `src/cutepandas/pandaswidgets/sortcontroller.py` |
+| Explorer window with docks | `src/cutepandas/pandaswidgets/dataframewidget.py` |
+| Dtype icons / delegates | `src/cutepandas/utils/icons.py`, `src/cutepandas/delegates/` |
 | Tests and fixtures | `tests/`, `tests/conftest.py` |
 | CI | `.github/workflows/build.yml`, `.github/workflows/documentation.yml` |
 | Docs config | `mkdocs.yml` |
@@ -127,20 +128,22 @@ uv sync --all-extras            # installs pyside6 + pyqt6 + polars + dev/lint/d
 uv run pytest                   # tests (Qt runs offscreen, set in tests/conftest.py)
 uv run ruff check .             # lint (ruff pinned in the `lint` group)
 uv run ruff format .            # format
-uv run ty check                 # type check (`cutepandas/` only); warnings fail too
+uv run ty check                 # type check (`src/cutepandas/` only); warnings fail too
 uv run deptry .                 # dependency hygiene
-uv run mknodes build            # docs (needs Python >= 3.13)
+uv run mknodes build            # docs
 uv build                        # sdist + wheel
 ```
 
-Pre-commit hooks (`.pre-commit-config.yaml`, run via prek/pre-commit) call
-`uv run ruff format`, `uv run ruff check` and `uv run ty check`, and commitizen checks
-commit messages (conventional commits).
+Pre-commit hooks (`.pre-commit-config.yaml` from the template, run via prek) call
+`uv run --no-sync` ruff format / check, tombi, ty and pytest; commitizen checks commit
+messages (conventional commits).
 
 ## Conventions
 
-- `from __future__ import annotations` everywhere; ruff line length 90; isort with
-  `force-sort-within-sections` and 2 lines after imports.
+- `from __future__ import annotations` everywhere; ruff config from the template, except
+  line length 90 and the Qt ignores (`N802` camelCase overrides, `PLR0911` role
+  dispatch in `data()`); isort with `force-sort-within-sections` and 2 lines after
+  imports.
 - Use prettyqt wrappers (`core.ModelIndex`, `constants.DISPLAY_ROLE`, `widgets.TableView`,
   `set_model`, ...) rather than raw Qt bindings.
 - Qt overrides keep Qt's camelCase names (`rowCount`, `data`, `keyPressEvent`).
@@ -155,12 +158,12 @@ commit messages (conventional commits).
 - A Qt binding is required at runtime: install with an extra (`cutepandas[pyside6]` or
   `cutepandas[pyqt6]`). Extras are ignored for DEP002 in `[tool.deptry]`.
 - `uv.lock` is gitignored.
-- The `docs` group's `mknodes` only installs on Python >= 3.13 (marker); CI tests
-  run with `--no-group docs`.
+- CI tests run with `--no-group docs`. Template deviations (keep them on `copier
+  update`): no hard `pyside6` dependency (the binding is an extra), line length 90,
+  and the docs workflow installs the Qt system libraries and runs offscreen.
 - Docs are the mknodes default site: `README.md` is the index page; API pages are
   generated. mknodes builds with Zensical (not MkDocs); the generated API
   pages need `mkdocstrings[python]` (in the `docs` group), and the build writes a
   gitignored `mkdocs.generated.yml`. `docs/changelog.md` is written by commitizen (`cz bump`).
-- `Makefile` still references poetry and is outdated; prefer the commands above.
 - Modules with `if __name__ == "__main__":` demos create a QApplication; never put demo
   code at module level (docs build and tests import every module).

@@ -43,7 +43,7 @@ def as_source(obj: Any) -> FrameSource:
     if isinstance(obj, pa.Table | pa.RecordBatch):
         return ArrowSource(obj)
     if is_polars_frame(obj):
-        from cutepandas.frames.polarssource import PolarsSource  # noqa: PLC0415
+        from cutepandas.frames.polarssource import PolarsSource
 
         return PolarsSource(obj)
     if isinstance(obj, FrameSource):

@@ -92,7 +92,7 @@ class SortController(core.Object):
         def work():
             try:
                 result = model.compute_sort_permutation(column, order)
-            except Exception as e:  # reported on the GUI thread
+            except Exception as e:  # noqa: BLE001 (reported on the GUI thread)
                 result = e
             self._permutation_ready.emit(request, result)  # queued to the GUI thread
 

@@ -375,7 +375,7 @@ class PandasEvalFilterProxyModel(BasePandasIndexFilterProxyModel):
             return None
         try:
             result = df.eval(self._expression)
-        except Exception:  # user input: any syntax / name / type error
+        except Exception:  # noqa: BLE001 (user input: any syntax / name / type error)
             logger.debug("Invalid filter expression %r", self._expression)
             return np.zeros(len(df), dtype=bool)
         if not pd.api.types.is_bool_dtype(getattr(result, "dtype", None)):

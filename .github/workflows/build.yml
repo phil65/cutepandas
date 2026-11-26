@@ -5,27 +5,33 @@ on: [push, pull_request]
 env:
   FORCE_COLOR: 1
   RUFF_OUTPUT_FORMAT: github
-  QT_QPA_PLATFORM: offscreen
 
 jobs:
   test:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
-    # 3.15 is a pre-release: test it early, but don't let it block the build.
-    continue-on-error: ${{ matrix.python_version == '3.15' }}
+    # The newest entry is a CPython pre-release: test it early, but don't let it block the build.
+    # When a new CPython ships: bump this version and the matrix range end (stable versions must pass).
+    continue-on-error: ${{ matrix.python_version == '3.16' }}
     strategy:
       fail-fast: false
       matrix:
-        python_version: ["3.14", "3.15"]
+        python_version: ["3.14", "3.15", "3.16"]
         os: ["ubuntu-latest", "macos-latest", "windows-latest"]
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
+
 
       - uses: tlambert03/setup-qt-libs@v1
+      # *alternative*:
+      # - uses: pyvista/setup-headless-display-action@v2
+      #   with:
+      #     qt: true
+
 
       - name: Set up Python ${{ matrix.python_version }}
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python_version }}
           allow-prereleases: true
@@ -52,7 +58,16 @@ jobs:
         run: uv run --no-group docs ty check
 
       - name: Run tests
-        run: uv run --no-group docs pytest --cov-report=xml --cov=cutepandas --cov-report=term-missing
+        run: uv run --no-group docs pytest --cov-report=xml --cov=src/cutepandas/ --cov-report=term-missing
+
+      - name: Upload test results to Codecov
+        # The upload sometimes hangs; never let it fail or block the build.
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: codecov/codecov-action@v7
+        with:
+          fail_ci_if_error: false
+          verbose: true
 
   release:
     runs-on: ubuntu-latest
@@ -65,18 +80,35 @@ jobs:
       contents: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # the whole history, so the notes cover everything since the last tag
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.14"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+          cache-suffix: py${{ matrix.python_version }}
 
       - name: Build package
         run: uv build
 
+      - name: Generate release notes
+        # From the Conventional Commits since the previous tag (cliff.toml)
+        run: uvx git-cliff --latest --strip header --output release-notes.md
+
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Release package on GitHub
+        uses: ncipollo/release-action@v1
+        with:
+          bodyFile: release-notes.md
+          artifacts: dist/*.whl,dist/*.tar.gz
+          token: ${{ secrets.GITHUB_TOKEN }}

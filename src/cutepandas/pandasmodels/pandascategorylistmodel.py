@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 from prettyqt import constants, core
 from prettyqt.utils import helpers
 
 from cutepandas.pandasmodels.categorymodel import CategoryModel
-from cutepandas.pandasmodels.dataframeholder import DataFrameHolder
+
+
+if TYPE_CHECKING:
+    from cutepandas.pandasmodels.dataframeholder import DataFrameHolder
 
 
 logger = logging.getLogger(__name__)
@@ -99,10 +102,11 @@ class PandasCategoryListModel(CategoryModel):
             cats = helpers.move_in_list(cats, indexes, row)
             self.reorder_categories(cats)
             return False
+        return None
 
     def sort(self, ncol, order):
         if ncol != 0:
-            return None
+            return
         is_descending = order == constants.DESCENDING
         new_order = sorted(self.series.cat.categories, reverse=is_descending)
         self.reorder_categories(new_order)

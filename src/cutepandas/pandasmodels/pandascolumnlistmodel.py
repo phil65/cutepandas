@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 import pandas as pd
@@ -199,7 +199,7 @@ class PandasIndexListModel(
     Labels go through `translate` (see `cutepandas.utils.i18n`).
     """
 
-    HEADER = [N_("Name"), N_("Index type"), N_("Monotonic")]
+    HEADER: ClassVar[list[str]] = [N_("Name"), N_("Index type"), N_("Monotonic")]
     MIME_TYPE = "mime_indexes"
 
     def __init__(
@@ -303,7 +303,7 @@ class PandasIndexListModel(
                 index = self.get_index(index.row())
                 if index.is_monotonic_increasing:
                     return self._tr(N_("Increasing"))
-                elif index.is_monotonic_decreasing:
+                if index.is_monotonic_decreasing:
                     return self._tr(N_("Decreasing"))
 
             case constants.USER_ROLE, _:
@@ -315,6 +315,7 @@ class PandasIndexListModel(
 
             case self.DTYPE_ROLE, _:
                 return self.get_index(index.row()).dtype
+        return None
 
     def rowCount(self, parent: core.ModelIndex | None = None) -> int:
         if self.df is None or (parent is not None and parent.isValid()):

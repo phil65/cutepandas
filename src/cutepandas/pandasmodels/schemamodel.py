@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 import enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from prettyqt import constants, core, itemmodels
 
-from cutepandas.frames import ColumnInfo
 from cutepandas.pandasmodels.dataframeholder import DataFrameHolderMixin
 from cutepandas.utils import icons
 from cutepandas.utils.i18n import N_, TranslatableHeaderMixin
 
 
 if TYPE_CHECKING:
+    from cutepandas.frames import ColumnInfo
     from cutepandas.utils.i18n import Translate
 
 
@@ -32,7 +32,7 @@ class SchemaModel(
     Labels (`HEADER`, tooltips) go through `translate` (see `cutepandas.utils.i18n`).
     """
 
-    HEADER = [N_("Name"), N_("Type"), N_("Nulls"), N_("Size")]
+    HEADER: ClassVar[list[str]] = [N_("Name"), N_("Type"), N_("Nulls"), N_("Size")]
 
     class Roles(enum.IntEnum):
         """Role names."""

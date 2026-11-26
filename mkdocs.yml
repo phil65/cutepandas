@@ -1,13 +1,15 @@
 site_name: "CutePandas"
-site_description: "Qt item models, filter proxies and widgets for pandas DataFrames"
+site_description: "Qt item models, delegates and widgets for dataframes (pandas, polars, pyarrow)"
 repo_url: "https://github.com/phil65/cutepandas/"
 site_url: https://phil65.github.io/cutepandas/
 site_author: "Philipp Temminghoff"
-copyright: Copyright &copy; 2023 Philipp Temminghoff
+copyright: Copyright &copy; 2019 Philipp Temminghoff
 
 theme:
   name: material
   custom_dir: overrides
+  icon:
+    logo: material/graph-outline
   palette:
     # Palette toggle for automatic mode
     - media: "(prefers-color-scheme)"
@@ -18,6 +20,7 @@ theme:
     # Palette toggle for light mode
     - media: "(prefers-color-scheme: light)"
       scheme: default
+      primary: red
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
@@ -25,22 +28,30 @@ theme:
     # Palette toggle for dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
+      primary: red
       toggle:
         icon: material/brightness-4
         name: Switch to system preference
   features:
+    - announce.dismiss
     - content.code.copy
     - content.code.select
     - content.code.annotate
+    - content.tooltips
+    # - content.tabs.link
     - navigation.tracking # update URL based on current item in TOC
     - navigation.path # shows breadcrumbs
     - navigation.tabs # make top level tabs
     - navigation.indexes # documents can be directly attached to sections (overview pages)
     - navigation.footer # next/previous page buttons in footer
     - navigation.top # adds back-to-top button
+    # - navigation.sections # top-level sections are rendered as groups
+    # - navigation.expand # expand all subsections in left sidebar by default
     - toc.follow # makes toc follow scrolling
+    # - toc.integrate  # integrates toc into left menu
     - search.highlight
     - search.suggest
+  # - search.share
 
 plugins:
   - search
@@ -59,11 +70,12 @@ plugins:
             show_symbol_type_toc: true
             show_symbol_type_heading: true
             show_root_toc_entry: false
+            # merge_init_into_class: true
             ignore_init_summary: true
             inherited_members: false
             signature_crossrefs: true
             separate_signature: true
-            line_length: 90
+            line_length: 100
 markdown_extensions:
   - attr_list
   - pymdownx.emoji
@@ -72,7 +84,7 @@ markdown_extensions:
 
 extra:
   social:
-    - icon: fontawesome/brands/github
-      link: https://github.com/phil65
-    - icon: fontawesome/brands/python
-      link: https://pypi.org/project/cutepandas/
+  - icon: fontawesome/brands/github
+    link: https://github.com/phil65
+  - icon: fontawesome/brands/python
+    link: https://pypi.org/project/cutepandas/

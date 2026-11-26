@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import ClassVar
+
 import numpy as np
 import pandas as pd
 from prettyqt import constants, core, itemmodels, widgets
@@ -39,7 +41,11 @@ class IndexDescriptionColumn(itemmodels.ColumnItem):
 
 
 class DataFrameListModel(itemmodels.ColumnTableModel):
-    COLUMNS = [RowsColumn, ColumnsColumn, IndexDescriptionColumn]
+    COLUMNS: ClassVar[list[type[itemmodels.ColumnItem]]] = [
+        RowsColumn,
+        ColumnsColumn,
+        IndexDescriptionColumn,
+    ]
 
     def __init__(self, dfs, parent=None):
         super().__init__(dfs, self.COLUMNS, parent=parent)

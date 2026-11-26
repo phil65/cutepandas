@@ -1,53 +1,81 @@
 default_language_version:
-    python: python3.14
+  python: python3.14
+default_stages: [pre-commit]
+# Hooks run with `uv run --no-sync`: they use the venv exactly as you synced it
+# (e.g. `uv sync --all-extras`). Plain `uv run` would re-sync without extras
+# and break tests that need them.
 repos:
-    - repo: https://github.com/pre-commit/pre-commit-hooks
-      rev: v6.0.0
-      hooks:
-          # - id: trailing-whitespace
-          - id: check-ast
-          - id: check-case-conflict
-          - id: check-docstring-first
-          - id: check-merge-conflict
-          - id: check-yaml
-            args: ["--unsafe"]
-          - id: check-toml
-          - id: detect-private-key
-          - id: forbid-new-submodules
-          - id: check-json
-          # - id: check-added-large-files
+  # Phase 1: Fast basic checks (fail early)
+  - repo: https://github.com/pre-commit/pre-commit-hooks
     # https://pre-commit.com/hooks.html
-    - repo: https://github.com/astral-sh/uv-pre-commit
-      # uv version.
-      rev: 0.13.9
-      hooks:
-          # Update the uv lockfile
-          - id: uv-lock
-    - repo: https://github.com/commitizen-tools/commitizen
-      rev: v4.19.4
-      hooks:
-          - id: commitizen
-            stages: [commit-msg]
-            additional_dependencies: [typing-extensions]
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-json
+      - id: check-xml
+      - id: check-yaml
+        args: [--allow-multiple-documents, --unsafe]
+      - id: detect-private-key
+      - id: debug-statements
 
-    - repo: local
-      hooks:
-          - id: ruff-format
-            name: ruff-format
-            entry: uv run ruff format
-            language: system
-            types: [python]
-            require_serial: true
-          - id: ruff
-            name: ruff
-            entry: uv run ruff check
-            language: system
-            types: [python]
-            require_serial: true
-          - id: ty
-            name: ty
-            entry: uv run ty check
-            language: system
-            types: [python]
-            pass_filenames: false
-            require_serial: true
+  # Phase 2: Code formatting (auto-fix, system commands)
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff-format
+        entry: uv run --no-sync ruff format
+        language: system
+        types: [python]
+        require_serial: true
+      - id: ruff-fix
+        name: ruff-fix
+        entry: uv run --no-sync ruff check --fix
+        language: system
+        types: [python]
+        require_serial: true
+      - id: tombi-format
+        name: tombi-format
+        entry: uv run --no-sync tombi format pyproject.toml
+        language: system
+        files: ^pyproject\.toml$
+        require_serial: true
+
+  # Phase 3: Linting and type checking (system commands)
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff
+        entry: uv run --no-sync ruff check
+        language: system
+        types: [python]
+        require_serial: true
+      - id: ty
+        name: ty
+        entry: uv run --no-sync ty check
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
+
+  # Phase 4: Tests (most expensive, system command)
+  - repo: local
+    hooks:
+      - id: pytest-check
+        name: pytest-check
+        entry: uv run --no-sync pytest
+        language: system
+        types: [python]
+        pass_filenames: false
+        always_run: true
+        require_serial: true
+
+  # Phase 5: Commit message validation (final)
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v4.9.1
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
+        additional_dependencies: [typing-extensions]

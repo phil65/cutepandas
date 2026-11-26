@@ -25,6 +25,8 @@ QWIDGETSIZE_MAX = (1 << 24) - 1
 ROW_PADDING = 10
 MAX_ROW_HEIGHT = 100
 MAX_SPAN_COUNT = 20_000
+# Narrowest width (px) a column can be dragged to in the index header.
+MIN_SECTION_RESIZE = 10
 
 
 def _pd_axis(df: Any, horizontal: bool) -> pd.Index | None:
@@ -54,7 +56,7 @@ def axis_spans(df: Any, horizontal: bool) -> list[tuple[int, int, int]]:
     thousands of spans).
     """
     axis = _pd_axis(df, horizontal)
-    if axis is None or len(axis) < 2:
+    if axis is None or len(axis) < 2:  # noqa: PLR2004 (a span needs two labels)
         return []
     if isinstance(axis, pd.MultiIndex):
         levels = [np.asarray(codes) for codes in axis.codes]
@@ -515,10 +517,10 @@ class DataFrameViewer(SortableViewerMixin, widgets.Widget):
 
         # Iterate over the row's columns and check the width of each to
         # determine the max height for the row
-        # Only check the first N columns for performance.
-        N = 100
+        # Only check the first columns for performance.
+        max_columns = 100
         model = self.table_data.model()
-        for i in range(min(N, model.columnCount())):
+        for i in range(min(max_columns, model.columnCount())):
             mi = model.index(row_index, i)
             cell_width = self.table_columns.columnWidth(i)
             text = model.data(mi)
@@ -636,12 +638,11 @@ class HeaderView(custom_widgets.OrientedTableView):
             return core.ItemSelection(
                 model.index(0, 0), model.index(last_row_ix - 1, last_col_ix)
             )
-        else:
-            last_row_ix = model.rowCount() - 1
-            last_col_ix = _nlevels(model.df, horizontal=False) - 1
-            return core.ItemSelection(
-                model.index(0, 0), model.index(last_row_ix, last_col_ix - 1)
-            )
+        last_row_ix = model.rowCount() - 1
+        last_col_ix = _nlevels(model.df, horizontal=False) - 1
+        return core.ItemSelection(
+            model.index(0, 0), model.index(last_row_ix, last_col_ix - 1)
+        )
 
     # Take the current set of selected cells and make it so that any spanning cell above
     # a selected cell is selected too This should happen after every selection change
@@ -700,8 +701,7 @@ class HeaderView(custom_widgets.OrientedTableView):
                     self.resize_start_pos = mouse_pos
                     self.initial_header_size = self.sectionWidth(self._header_is_resizing)
                     return True
-                else:
-                    self._header_is_resizing = None
+                self._header_is_resizing = None
             # End the drag process
             case core.QEvent.Type.MouseButtonRelease:
                 self._header_is_resizing = None
@@ -719,7 +719,7 @@ class HeaderView(custom_widgets.OrientedTableView):
                 # If this is None, there is no drag resize happening
                 if self._header_is_resizing is not None:
                     size = self.initial_header_size + mouse_pos - self.resize_start_pos
-                    if size > 10:
+                    if size > MIN_SECTION_RESIZE:
                         table_data = self.parent().table_data
                         self.setSectionWidth(self._header_is_resizing, size)
                         if self.is_horizontal():
@@ -766,8 +766,7 @@ class HeaderView(custom_widgets.OrientedTableView):
     def minimumSizeHint(self):
         if self.is_horizontal():
             return core.Size(0, self.sizeHint().height())
-        else:
-            return core.Size(self.sizeHint().width(), 0)
+        return core.Size(self.sizeHint().width(), 0)
 
 
 class TrackingSpacer(widgets.Frame):

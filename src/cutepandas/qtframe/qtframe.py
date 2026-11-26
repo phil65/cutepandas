@@ -139,17 +139,15 @@ def wrapper(method):
 
 
 class MetaClass(type):
-    def __new__(cls, classname, bases, classDict):
-        newClassDict = classDict
-        for attributeName, attribute in bases[0].__dict__.items():
-            if attributeName in TO_DECORATE:
-                attribute = wrapper(attribute)
-                newClassDict[attributeName] = attribute
-        return type.__new__(cls, classname, bases, newClassDict)
+    def __new__(cls, classname, bases, class_dict):
+        for attribute_name, attribute in bases[0].__dict__.items():
+            if attribute_name in TO_DECORATE:
+                class_dict[attribute_name] = wrapper(attribute)
+        return type.__new__(cls, classname, bases, class_dict)
 
 
 class QtFrame(pd.DataFrame, metaclass=MetaClass):
-    _metadata = ["_fn"]
+    _metadata = ["_fn"]  # noqa: RUF012 (pandas declares it as an instance attribute)
     signals = Signals()
 
     @property

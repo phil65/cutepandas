@@ -31,7 +31,7 @@ def _fmt(value: Any) -> str:
 class TopValuesModel(TranslatableHeaderMixin, core.AbstractTableModel):
     """Most frequent values of a column: value, count and share of all rows."""
 
-    HEADER = [N_("Value"), N_("Count"), N_("Share")]
+    HEADER: ClassVar[list[str]] = [N_("Value"), N_("Count"), N_("Share")]
 
     def __init__(
         self,

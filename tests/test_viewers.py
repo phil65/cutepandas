@@ -303,10 +303,7 @@ def spans(view, *, horizontal: bool) -> set[tuple[int, int, int]]:
     for level in range(levels):
         pos = 0
         while pos < count:
-            if horizontal:
-                n = view.columnSpan(level, pos)
-            else:
-                n = view.rowSpan(pos, level)
+            n = view.columnSpan(level, pos) if horizontal else view.rowSpan(pos, level)
             if n > 1:
                 found.add((level, pos, n))
             pos += max(n, 1)
