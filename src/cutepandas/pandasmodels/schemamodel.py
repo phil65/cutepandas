@@ -1,7 +1,5 @@
 """`SchemaModel`: the columns of a frame with dtype, icon, null count and size."""
 
-from __future__ import annotations
-
 import enum
 from typing import TYPE_CHECKING, Any, ClassVar
 

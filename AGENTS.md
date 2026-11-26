@@ -140,7 +140,7 @@ messages (conventional commits).
 
 ## Conventions
 
-- `from __future__ import annotations` everywhere; ruff config from the template, except
+- Ruff config from the template, except
   line length 90 and the Qt ignores (`N802` camelCase overrides, `PLR0911` role
   dispatch in `data()`); isort with `force-sort-within-sections` and 2 lines after
   imports.

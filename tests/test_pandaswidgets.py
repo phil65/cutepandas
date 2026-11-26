@@ -1,7 +1,5 @@
 """Tests for `cutepandas` package."""
 
-from __future__ import annotations
-
 import pandas as pd
 from prettyqt import constants, core, gui, widgets
 

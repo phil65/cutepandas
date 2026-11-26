@@ -10,8 +10,6 @@ The English labels are marked with `N_` (a no-op), so a message catalog can be
 extracted with `xgettext --keyword=N_` (or babel `-k N_`) over the package.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from typing import Any, ClassVar
 

@@ -10,8 +10,6 @@ chunks. The optional write hook `set_value` changes the frame in place and must 
 the GUI thread (the model invalidates its caches afterwards).
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 import enum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable

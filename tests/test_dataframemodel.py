@@ -1,7 +1,5 @@
 """Tests for table, schema and category models, delegates and widgets (all backends)."""
 
-from __future__ import annotations
-
 import threading
 
 import numpy as np

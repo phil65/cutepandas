@@ -3,8 +3,6 @@
 Meant for the Type column of a `PandasColumnListModel`.
 """
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 from prettyqt import constants, widgets

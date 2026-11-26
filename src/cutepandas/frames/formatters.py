@@ -1,7 +1,5 @@
 """Per-kind display formatters (Qt-free, applied to one chunk at a time)."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 import math

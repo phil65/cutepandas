@@ -1,7 +1,5 @@
 """A thread-safe, bounded LRU cache of per-column row chunks."""
 
-from __future__ import annotations
-
 from collections import OrderedDict
 import threading
 from typing import TYPE_CHECKING

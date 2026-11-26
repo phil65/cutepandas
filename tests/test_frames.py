@@ -1,7 +1,5 @@
 """Tests for `cutepandas.frames` (Qt-free sources, formatters, chunk cache)."""
 
-from __future__ import annotations
-
 import datetime as dt
 import threading
 

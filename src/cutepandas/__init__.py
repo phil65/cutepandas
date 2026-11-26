@@ -3,8 +3,6 @@
 Qt item models, delegates and widgets for dataframes (pandas, polars, pyarrow).
 """
 
-from __future__ import annotations
-
 from importlib.metadata import version
 
 __version__ = version("cutepandas")

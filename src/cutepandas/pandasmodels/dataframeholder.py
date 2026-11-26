@@ -1,7 +1,5 @@
 """A shared, observable container for one frame (pandas, polars, pyarrow)."""
 
-from __future__ import annotations
-
 from typing import Any
 
 import numpy as np

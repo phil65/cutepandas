@@ -1,7 +1,5 @@
 """Four-table 2x2 grid DataFrame viewer (corner levels, column headers, index, data)."""
 
-from __future__ import annotations
-
 import logging
 from typing import TYPE_CHECKING, Any
 

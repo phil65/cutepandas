@@ -1,7 +1,5 @@
 """The three DataFrame viewers: sorting, MultiIndex headers, backends."""
 
-from __future__ import annotations
-
 import numpy as np
 import pandas as pd
 from prettyqt import constants, gui

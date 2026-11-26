@@ -1,7 +1,5 @@
 """Single-table DataFrame viewer built on one QTableView and DataFrameModel."""
 
-from __future__ import annotations
-
 import logging
 from typing import TYPE_CHECKING, Any
 

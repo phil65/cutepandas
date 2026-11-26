@@ -1,7 +1,5 @@
 """`FrameSource` adapter for pandas DataFrames (the first-class backend)."""
 
-from __future__ import annotations
-
 from functools import cached_property
 import math
 from typing import TYPE_CHECKING, Any

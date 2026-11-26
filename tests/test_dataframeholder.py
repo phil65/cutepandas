@@ -1,7 +1,5 @@
 """Tests for sharing one DataFrame between models and widgets."""
 
-from __future__ import annotations
-
 import pandas as pd
 from prettyqt import constants, core
 import pytest

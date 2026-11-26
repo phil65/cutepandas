@@ -1,7 +1,5 @@
 """`DataFrameModel`: a virtual table model over any `FrameSource`."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 import enum
 import logging

@@ -1,7 +1,5 @@
 """`CategoryModel`: the categories of a categorical / enum column (any backend)."""
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from prettyqt import constants, core, iconprovider, itemmodels

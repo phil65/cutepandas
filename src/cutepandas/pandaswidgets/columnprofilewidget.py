@@ -1,7 +1,5 @@
 """`ColumnProfileWidget`: basic statistics and top values of one column."""
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from prettyqt import constants, core, widgets

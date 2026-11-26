@@ -6,8 +6,6 @@ wraps a pandas DataFrame / Series, a pyarrow Table / RecordBatch or a polars Dat
 the protocol (e.g. a lazy source of an application) are returned unchanged.
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 import pandas as pd

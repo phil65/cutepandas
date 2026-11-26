@@ -1,7 +1,5 @@
 """`ValueColorDelegate`: paint a cell by its value (data bar or heat map)."""
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Literal
 
 from prettyqt import gui, widgets

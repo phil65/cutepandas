@@ -1,7 +1,5 @@
 """Shared palette-aware visual styling and delegates for DataFrame viewers."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 

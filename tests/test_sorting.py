@@ -1,7 +1,5 @@
 """Display-only sort (row permutation), `sortable` / `sort_requested` (all backends)."""
 
-from __future__ import annotations
-
 import tracemalloc
 
 import numpy as np
